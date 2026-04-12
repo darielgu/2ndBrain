@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Activity, Brain, Check, Database, Users } from 'lucide-react'
+import { Activity, Brain, Check, Database, Eye, Users } from 'lucide-react'
 import {
   Card,
   CardContent,
@@ -17,6 +17,7 @@ const STEPS = [
   { id: 'audio', label: 'finalizing audio stream', Icon: Activity },
   { id: 'transcript', label: 'stitching transcript chunks', Icon: Activity },
   { id: 'speakers', label: 'resolving speaker turns', Icon: Users },
+  { id: 'vision', label: 'scanning meet frames for faces', Icon: Eye },
   { id: 'extract', label: 'extracting episode memory', Icon: Brain },
   { id: 'persist', label: 'writing to nia context store', Icon: Database },
 ] as const

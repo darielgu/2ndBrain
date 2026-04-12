@@ -103,8 +103,14 @@ export function buildEpisodeProse(episode: Episode): string {
 // --- Serialization helpers (metadata <-> Person/Episode) ---
 
 function personToMetadata(person: Person): Record<string, unknown> {
-  // Strip nia_context_id — that's the ID of the context, not part of the payload
-  const { nia_context_id: _omit, ...rest } = person
+  // Strip nia_context_id and face_image — face thumbnails are base64 blobs
+  // that bloat Nia metadata without being useful to semantic search. Kept
+  // in sqlite only.
+  const {
+    nia_context_id: _omit1,
+    face_image: _omit2,
+    ...rest
+  } = person
   return rest as unknown as Record<string, unknown>
 }
 
@@ -285,6 +291,10 @@ export async function savePersonContext(person: Person): Promise<string> {
         ...(person.notes || []),
       ],
       prose: person.prose || existing.person.prose,
+      // face_image is sqlite-only; pass the new one through — upsertPerson
+      // uses COALESCE to preserve the existing image when the new one is
+      // null, so first-capture wins until a fresh crop arrives.
+      face_image: person.face_image,
     }
 
     const rawContent = buildPersonProse(merged)

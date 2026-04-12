@@ -43,6 +43,7 @@ export function getDb(): Database.Database {
       open_loops      TEXT NOT NULL DEFAULT '[]',
       notes           TEXT NOT NULL DEFAULT '[]',
       prose           TEXT,
+      face_image      TEXT,
       last_seen       TEXT,
       nia_context_id  TEXT,
       created_at      INTEGER NOT NULL,
@@ -64,6 +65,12 @@ export function getDb(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS idx_episodes_timestamp ON episodes(timestamp DESC);
   `)
+
+  // Forward migrations for pre-existing dbs. Each ALTER is wrapped because
+  // "duplicate column" fires on already-migrated dbs and should be swallowed.
+  try {
+    db.exec(`ALTER TABLE people ADD COLUMN face_image TEXT`)
+  } catch {}
 
   _db = db
   return db
@@ -142,6 +149,7 @@ interface PersonRow {
   open_loops: string
   notes: string
   prose: string | null
+  face_image: string | null
   last_seen: string | null
   nia_context_id: string | null
   created_at: number
@@ -157,6 +165,7 @@ function rowToPerson(row: PersonRow): Person {
     open_loops: safeJsonArray(row.open_loops),
     notes: safeJsonArray(row.notes),
     prose: row.prose || undefined,
+    face_image: row.face_image || undefined,
     last_seen: row.last_seen || '',
     nia_context_id: row.nia_context_id || undefined,
   }
@@ -187,10 +196,10 @@ export function upsertPerson(person: Person): void {
   db.prepare(
     `INSERT INTO people (
       person_id, name, where_met, summary, open_loops, notes, prose,
-      last_seen, nia_context_id, created_at, updated_at
+      face_image, last_seen, nia_context_id, created_at, updated_at
     ) VALUES (
       @person_id, @name, @where_met, @summary, @open_loops, @notes, @prose,
-      @last_seen, @nia_context_id, @created_at, @updated_at
+      @face_image, @last_seen, @nia_context_id, @created_at, @updated_at
     )
     ON CONFLICT(person_id) DO UPDATE SET
       name           = excluded.name,
@@ -199,6 +208,7 @@ export function upsertPerson(person: Person): void {
       open_loops     = excluded.open_loops,
       notes          = excluded.notes,
       prose          = excluded.prose,
+      face_image     = COALESCE(excluded.face_image, people.face_image),
       last_seen      = excluded.last_seen,
       nia_context_id = COALESCE(excluded.nia_context_id, people.nia_context_id),
       updated_at     = excluded.updated_at`,
@@ -210,6 +220,7 @@ export function upsertPerson(person: Person): void {
     open_loops: JSON.stringify(person.open_loops || []),
     notes: JSON.stringify(person.notes || []),
     prose: person.prose || null,
+    face_image: person.face_image || null,
     last_seen: person.last_seen || null,
     nia_context_id: person.nia_context_id || null,
     created_at: existing?.created_at ?? now,
