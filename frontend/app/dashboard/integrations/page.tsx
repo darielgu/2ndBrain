@@ -227,7 +227,8 @@ export default function IntegrationsPage() {
                 : 'not connected'}
             </h2>
             {google?.connected && (
-              <p className="mt-1 text-[11px] lowercase text-muted-foreground">
+              <p className="mt-1 flex items-center gap-1 text-[11px] lowercase text-green-400">
+                <CheckCircle2 className="h-3.5 w-3.5" />
                 {connectedCount} of {totalCount} surfaces active
               </p>
             )}
@@ -279,7 +280,7 @@ function IntegrationCard({ item }: { item: Integration }) {
   const Icon = item.icon
   const statusColor =
     item.state === 'connected'
-      ? 'text-foreground'
+      ? 'text-green-400'
       : item.state === 'available'
       ? 'text-muted-foreground'
       : 'text-muted-foreground/70'
@@ -295,7 +296,7 @@ function IntegrationCard({ item }: { item: Integration }) {
     <article
       className={`flex flex-col gap-2 border p-3 text-sm lowercase transition-colors ${
         item.state === 'connected'
-          ? 'border-foreground/40 bg-background/60'
+          ? 'border-green-400/40 bg-background/60'
           : 'border-border bg-background/40'
       }`}
     >
