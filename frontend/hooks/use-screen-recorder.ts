@@ -61,6 +61,12 @@ export function useScreenRecorder() {
   const streamRef = useRef<MediaStream | null>(null)
   const micStreamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
+  const mixedStreamRef = useRef<MediaStream | null>(null)
+  const chunkTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // True while recording — gates the stop/restart cycle in startChunkCycle.
+  // Flipped to false in stopRecording so the final onstop doesn't spawn
+  // another recorder after we've torn everything down.
+  const recordingActiveRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const chunkIndexRef = useRef(0)
   const transcriptRef = useRef('')
@@ -77,12 +83,17 @@ export function useScreenRecorder() {
       clearInterval(timerRef.current)
       timerRef.current = null
     }
+    if (chunkTimeoutRef.current) {
+      clearTimeout(chunkTimeoutRef.current)
+      chunkTimeoutRef.current = null
+    }
     if (mediaRecorderRef.current?.state !== 'inactive') {
       try {
         mediaRecorderRef.current?.stop()
       } catch {}
     }
     mediaRecorderRef.current = null
+    mixedStreamRef.current = null
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
@@ -170,6 +181,58 @@ export function useScreenRecorder() {
     }
   }, [])
 
+  // Produces one complete, self-contained webm file per chunk.
+  //
+  // Background: MediaRecorder.start(timeslice) only writes the webm/opus
+  // init segment to the FIRST dataavailable blob. Subsequent blobs are
+  // raw clusters that can't be decoded standalone — whisper-1 tolerated
+  // this; gpt-4o-transcribe rejects them with "audio file might be
+  // corrupted". So instead we start a fresh recorder, wait 30s, stop it
+  // (which gives us a complete file), transcribe, and cycle.
+  const startChunkCycle = useCallback(() => {
+    const mixedStream = mixedStreamRef.current
+    if (!mixedStream || !recordingActiveRef.current) return
+
+    const mimeType = getSupportedMimeType()
+    const recorder = new MediaRecorder(mixedStream, {
+      mimeType,
+      audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
+    })
+
+    const pieces: Blob[] = []
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) pieces.push(e.data)
+    }
+    recorder.onstop = () => {
+      // Assemble a complete standalone file from all dataavailable events
+      // emitted by this recorder instance.
+      if (pieces.length > 0) {
+        const blob = new Blob(pieces, { type: mimeType })
+        if (blob.size > 1000) {
+          const index = chunkIndexRef.current++
+          transcribeChunk(blob, index)
+        }
+      }
+      // Cycle into the next chunk only if still recording.
+      if (recordingActiveRef.current) {
+        startChunkCycle()
+      }
+    }
+
+    mediaRecorderRef.current = recorder
+    // No timeslice — let the recorder buffer until we manually stop it,
+    // which is what guarantees a complete, parseable webm file.
+    recorder.start()
+
+    chunkTimeoutRef.current = setTimeout(() => {
+      if (recorder.state !== 'inactive') {
+        try {
+          recorder.stop()
+        } catch {}
+      }
+    }, CHUNK_INTERVAL_MS)
+  }, [transcribeChunk])
+
   const startRecording = useCallback(async () => {
     setError(null)
     setChunks([])
@@ -246,22 +309,10 @@ export function useScreenRecorder() {
           sources.push(micStream)
         }
         const mixedStream = mixAudioStreams(audioContext, sources)
+        mixedStreamRef.current = mixedStream
 
-        const mimeType = getSupportedMimeType()
-        const recorder = new MediaRecorder(mixedStream, {
-          mimeType,
-          audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
-        })
-
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            const index = chunkIndexRef.current++
-            transcribeChunk(e.data, index)
-          }
-        }
-
-        mediaRecorderRef.current = recorder
-        recorder.start(CHUNK_INTERVAL_MS)
+        recordingActiveRef.current = true
+        startChunkCycle()
       }
 
       // Start elapsed timer
@@ -275,22 +326,32 @@ export function useScreenRecorder() {
       setError('screen share cancelled or denied.')
       cleanup()
     }
-  }, [cleanup, transcribeChunk])
+  }, [cleanup, startChunkCycle])
 
   const stopRecording = useCallback(async () => {
-    // Stop the media recorder (triggers final ondataavailable)
+    // Flip the flag FIRST so the in-flight recorder's onstop doesn't
+    // start a new chunk cycle after we tear things down.
+    recordingActiveRef.current = false
+    if (chunkTimeoutRef.current) {
+      clearTimeout(chunkTimeoutRef.current)
+      chunkTimeoutRef.current = null
+    }
+    // Stop the current recorder — its onstop handler will assemble the
+    // final blob and kick off one last transcribeChunk call.
     if (
       mediaRecorderRef.current &&
       mediaRecorderRef.current.state !== 'inactive'
     ) {
-      mediaRecorderRef.current.stop()
+      try {
+        mediaRecorderRef.current.stop()
+      } catch {}
     }
 
     cleanup()
     setStatus('processing')
 
-    // Wait a beat for any final chunk transcription to finish
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait a beat for the final onstop + transcription to finish.
+    await new Promise((resolve) => setTimeout(resolve, 3000))
 
     const fullTranscript = transcriptRef.current
 
