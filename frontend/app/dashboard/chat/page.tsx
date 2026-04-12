@@ -7,11 +7,65 @@ import type { Person } from '@/lib/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
+type ToolCallItem = {
+  id: string
+  name: string
+  status: 'running' | 'done' | 'error'
+  arguments?: string
+  result_preview?: string
+  error?: string
+}
+
+type Citation = {
+  context_id: string
+  title: string
+}
+
 type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   text: string
   pending?: boolean
+  toolCalls?: ToolCallItem[]
+  citations?: Citation[]
+}
+
+type StreamPayload = Record<string, unknown>
+
+function parseSseChunk(
+  chunk: string,
+  onEvent: (event: string, payload: StreamPayload) => void
+) {
+  const lines = chunk.split('\n')
+  let event = 'message'
+  const dataLines: string[] = []
+
+  for (const line of lines) {
+    if (line.startsWith('event:')) {
+      event = line.slice(6).trim()
+      continue
+    }
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trim())
+    }
+  }
+
+  const raw = dataLines.join('\n').trim()
+  let payload: StreamPayload = {}
+  if (raw) {
+    try {
+      payload = JSON.parse(raw) as StreamPayload
+    } catch {
+      payload = { message: raw }
+    }
+  }
+  onEvent(event, payload)
+}
+
+function statusTone(status: ToolCallItem['status']): string {
+  if (status === 'done') return 'text-emerald-300'
+  if (status === 'error') return 'text-destructive'
+  return 'text-blue-300'
 }
 
 export default function ChatPage() {
@@ -35,9 +89,8 @@ export default function ChatPage() {
   }, [])
 
   const selectedPeople = useMemo(
-    () =>
-      people.filter((person) => selectedPeopleIds.includes(person.person_id)),
-    [people, selectedPeopleIds],
+    () => people.filter((person) => selectedPeopleIds.includes(person.person_id)),
+    [people, selectedPeopleIds]
   )
 
   const togglePerson = (personId: string) => {
@@ -48,7 +101,7 @@ export default function ChatPage() {
     )
   }
 
-  const handleSend = async (message: string) => {
+  const handleSend = async (message: string, _files?: File[]) => {
     const trimmedMessage = message.trim()
     if (!trimmedMessage || isSending) return
 
@@ -61,8 +114,10 @@ export default function ChatPage() {
     const pendingMsg: ChatMessage = {
       id: pendingId,
       role: 'assistant',
-      text: 'searching memory…',
+      text: '',
       pending: true,
+      toolCalls: [],
+      citations: [],
     }
 
     const nextMessages = [...messages, userMsg]
@@ -70,31 +125,151 @@ export default function ChatPage() {
     setIsSending(true)
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await fetch('/api/chat/memory-agent?stream=1', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
         body: JSON.stringify({
-          messages: nextMessages.map((m) => ({ role: m.role, text: m.text })),
-          personIds: selectedPeopleIds,
+          message: trimmedMessage,
+          selected_people: selectedPeopleIds,
         }),
       })
 
-      const data = await res.json().catch(() => ({}))
-      const reply =
-        typeof data?.reply === 'string' && data.reply.length > 0
-          ? data.reply
-          : 'could not reach memory. try again.'
+      if (!res.ok || !res.body) {
+        throw new Error(`stream failed (${res.status})`)
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      const applyEvent = (event: string, payload: StreamPayload) => {
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== pendingId) return m
+
+            if (event === 'tool_call_started') {
+              const id = String(payload.id || `tool-${Date.now()}`)
+              const next: ToolCallItem = {
+                id,
+                name: String(payload.name || 'tool'),
+                status: 'running',
+                arguments:
+                  payload.arguments && typeof payload.arguments === 'object'
+                    ? JSON.stringify(payload.arguments)
+                    : undefined,
+              }
+              const existing = m.toolCalls || []
+              const without = existing.filter((item) => item.id !== id)
+              return { ...m, toolCalls: [...without, next] }
+            }
+
+            if (event === 'tool_call_finished') {
+              const id = String(payload.id || '')
+              const ok = Boolean(payload.ok)
+              const previewItems = Array.isArray(payload.result_preview)
+                ? payload.result_preview
+                    .map((row) => {
+                      if (!row || typeof row !== 'object') return ''
+                      const title = String((row as Record<string, unknown>).title || '').trim()
+                      return title
+                    })
+                    .filter(Boolean)
+                : []
+              return {
+                ...m,
+                toolCalls: (m.toolCalls || []).map((item) =>
+                  item.id === id
+                    ? {
+                        ...item,
+                        status: ok ? 'done' : 'error',
+                        result_preview: previewItems.join(' • '),
+                        error: ok ? undefined : String(payload.error || 'tool call failed'),
+                      }
+                    : item,
+                ),
+              }
+            }
+
+            if (event === 'assistant_delta') {
+              const delta = String(payload.text || '')
+              return { ...m, text: `${m.text}${delta}` }
+            }
+
+            if (event === 'assistant_done') {
+              const answer = String(payload.answer || m.text || '')
+              const citations = Array.isArray(payload.citations)
+                ? payload.citations
+                    .filter((row): row is Citation => {
+                      if (!row || typeof row !== 'object') return false
+                      const id = (row as Record<string, unknown>).context_id
+                      const title = (row as Record<string, unknown>).title
+                      return typeof id === 'string' && typeof title === 'string'
+                    })
+                    .slice(0, 6)
+                : []
+              return {
+                ...m,
+                text: answer,
+                pending: false,
+                citations,
+              }
+            }
+
+            if (event === 'error') {
+              const message = String(payload.message || 'memory agent failed')
+              return {
+                ...m,
+                text: m.text || message,
+                pending: false,
+              }
+            }
+
+            return m
+          }),
+        )
+      }
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        let boundary = buffer.indexOf('\n\n')
+
+        while (boundary !== -1) {
+          const rawEvent = buffer.slice(0, boundary)
+          buffer = buffer.slice(boundary + 2)
+          if (rawEvent.trim()) {
+            parseSseChunk(rawEvent, applyEvent)
+          }
+          boundary = buffer.indexOf('\n\n')
+        }
+      }
+
+      if (buffer.trim()) {
+        parseSseChunk(buffer, applyEvent)
+      }
 
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === pendingId ? { ...m, text: reply, pending: false } : m,
+          m.id === pendingId && m.pending
+            ? { ...m, pending: false, text: m.text || 'no response returned.' }
+            : m,
         ),
       )
-    } catch {
+    } catch (err) {
+      console.error('chat stream failed:', err)
       setMessages((prev) =>
         prev.map((m) =>
           m.id === pendingId
-            ? { ...m, text: 'memory lookup failed.', pending: false }
+            ? {
+                ...m,
+                text: 'memory lookup failed.',
+                pending: false,
+              }
             : m,
         ),
       )
@@ -106,6 +281,9 @@ export default function ChatPage() {
   const promptBox = (
     <PromptInputBox
       placeholder="ask: what did i promise maya?"
+      showSearchToggle={false}
+      showThinkToggle={false}
+      showCanvasToggle={false}
       leftActionsAddon={
         <Popover>
           <PopoverTrigger asChild>
@@ -137,9 +315,7 @@ export default function ChatPage() {
                 </p>
               ) : (
                 people.map((person) => {
-                  const isSelected = selectedPeopleIds.includes(
-                    person.person_id,
-                  )
+                  const isSelected = selectedPeopleIds.includes(person.person_id)
                   const openLoop =
                     person.open_loops.length > 0
                       ? person.open_loops[0]
@@ -153,9 +329,7 @@ export default function ChatPage() {
                       className="flex w-full items-start justify-between rounded-sm border border-transparent px-2 py-2 text-left transition-all duration-150 hover:border-border hover:bg-secondary/40"
                     >
                       <div>
-                        <p className="text-xs lowercase text-foreground">
-                          {person.name}
-                        </p>
+                        <p className="text-xs lowercase text-foreground">{person.name}</p>
                         <p className="text-[11px] lowercase text-muted-foreground">
                           {person.where_met || 'unknown'} • open loop: {openLoop}
                         </p>
@@ -172,14 +346,14 @@ export default function ChatPage() {
         </Popover>
       }
       onSend={handleSend}
+      isLoading={isSending}
     />
   )
 
   return (
     <div className="space-y-4">
-      <div className="border border-border bg-background/40 p-3">
-        <p className="text-xs tracking-widest text-muted-foreground">secondbrain / chat</p>
-        <h1 className="mt-1 text-2xl lowercase tracking-tight md:text-3xl">memory chat</h1>
+      <div className="border border-border bg-background/40 px-4 py-4 md:px-5 md:py-5">
+        <h1 className="text-xl tracking-tight text-foreground md:text-2xl">Memory Chat</h1>
       </div>
 
       <Card className="rounded-none border-border bg-background/40 shadow-none">
@@ -209,7 +383,33 @@ export default function ChatPage() {
                         : 'border-border bg-secondary/40 text-muted-foreground'
                     } ${message.pending ? 'animate-pulse' : ''}`}
                   >
-                    {message.text}
+                    <p>{message.text || (message.pending ? 'thinking…' : '')}</p>
+
+                    {message.toolCalls && message.toolCalls.length > 0 ? (
+                      <div className="mt-2 space-y-1 border-t border-border/60 pt-2 text-[11px]">
+                        {message.toolCalls.map((tool) => (
+                          <div key={tool.id} className="space-y-0.5">
+                            <p className={`${statusTone(tool.status)}`}>
+                              tool {tool.name} • {tool.status}
+                            </p>
+                            {tool.result_preview ? (
+                              <p className="text-muted-foreground">{tool.result_preview}</p>
+                            ) : null}
+                            {tool.error ? (
+                              <p className="text-destructive">{tool.error}</p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {message.citations && message.citations.length > 0 ? (
+                      <div className="mt-2 border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
+                        {message.citations.map((citation) => (
+                          <p key={citation.context_id}>{citation.title}</p>
+                        ))}
+                      </div>
+                    ) : null}
                   </article>
                 ))}
               </div>

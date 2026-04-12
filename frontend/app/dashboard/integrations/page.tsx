@@ -202,12 +202,11 @@ export default function IntegrationsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="border border-border bg-background/40 p-3">
-        <p className="text-xs tracking-widest text-muted-foreground">secondbrain / integrations</p>
-        <h1 className="mt-1 text-2xl lowercase tracking-tight md:text-3xl">
-          integrations
+      <div className="border border-border bg-background/40 px-4 py-4 md:px-5 md:py-5">
+        <h1 className="text-xl tracking-tight text-foreground md:text-2xl">
+          Integrations
         </h1>
-        <p className="mt-1 text-xs lowercase text-muted-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           services secondbrain can read from or act on. each scope below is something you said yes to.
         </p>
       </div>

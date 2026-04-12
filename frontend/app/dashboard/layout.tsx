@@ -19,9 +19,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 const navItems = [
   { label: 'overview', href: '/dashboard/overview', icon: LayoutDashboard },
+  { label: 'chat', href: '/dashboard/chat', icon: MessageSquare },
   { label: 'start session', href: '/dashboard/session', icon: Play },
   { label: 'people', href: '/dashboard/people', icon: Users },
-  { label: 'chat', href: '/dashboard/chat', icon: MessageSquare },
   { label: 'history', href: '/dashboard/history', icon: History },
   { label: 'settings', href: '/dashboard/settings', icon: Settings },
 ]
