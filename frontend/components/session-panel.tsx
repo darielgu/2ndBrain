@@ -27,6 +27,15 @@ export function SessionPanel({
   const [mode, setMode] = useState<SessionMode>('idle')
   const [webcamError, setWebcamError] = useState<string | null>(null)
   const [webcamElapsed, setWebcamElapsed] = useState(0)
+  // Hydration-safe: only render capability warning after client mount.
+  const [mounted, setMounted] = useState(false)
+  const [systemAudioSupported, setSystemAudioSupported] = useState(true)
+
+  useEffect(() => {
+    setMounted(true)
+    setSystemAudioSupported(canCaptureSystemAudio())
+  }, [])
+
   const videoRef = useRef<HTMLVideoElement>(null)
   const webcamStreamRef = useRef<MediaStream | null>(null)
   const webcamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -135,8 +144,6 @@ export function SessionPanel({
 
   // --- Idle state: show two mode selection buttons ---
   if (mode === 'idle') {
-    const systemAudioSupported = typeof window !== 'undefined' && canCaptureSystemAudio()
-
     return (
       <div className="space-y-4">
         <Card className="rounded-none border-border bg-background/40 shadow-none">
@@ -172,7 +179,7 @@ export function SessionPanel({
                 </p>
               </button>
             </div>
-            {!systemAudioSupported && (
+            {mounted && !systemAudioSupported && (
               <p className="mt-3 text-xs lowercase text-muted-foreground">
                 note: system audio capture works best in chrome or edge.
               </p>
