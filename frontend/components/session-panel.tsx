@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/card'
 import { LiveTranscript } from '@/components/live-transcript'
 import { ExtractionCard } from '@/components/extraction-card'
+import { SessionEnding } from '@/components/session-ending'
 import { useRecording } from '@/components/recording-provider'
 import { canCaptureSystemAudio } from '@/hooks/use-screen-recorder'
 
@@ -25,6 +26,10 @@ export function SessionPanel({
   onMemorySaved?: () => void
 }) {
   const [mode, setMode] = useState<SessionMode>('idle')
+  // Locks the UI into the ending animation from the click moment until
+  // we've fully landed on the idle/extraction view — avoids flashing the
+  // paused recording panel while recorder.status transitions processing→idle.
+  const [isEnding, setIsEnding] = useState(false)
   const [webcamError, setWebcamError] = useState<string | null>(null)
   const [webcamElapsed, setWebcamElapsed] = useState(0)
   // Hydration-safe: only render capability warning after client mount.
@@ -95,9 +100,14 @@ export function SessionPanel({
   }, [recorder])
 
   const stopScreenCapture = useCallback(async () => {
-    await recorder.stopRecording()
-    setMode('idle')
-    onMemorySaved?.()
+    setIsEnding(true)
+    try {
+      await recorder.stopRecording()
+      setMode('idle')
+      onMemorySaved?.()
+    } finally {
+      setIsEnding(false)
+    }
   }, [recorder, onMemorySaved])
 
   // React to recorder status — if it errors or becomes idle externally, sync UI
@@ -141,6 +151,18 @@ export function SessionPanel({
 
   const currentElapsed = mode === 'webcam' ? webcamElapsed : recorder.elapsed
   const currentError = mode === 'webcam' ? webcamError : recorder.error
+
+  // --- Processing state: show the ending animation instead of the
+  //     paused recording view. Lingers from click until extraction and
+  //     nia writes complete, covering any async gap between
+  //     recorder.status→idle and mode→idle.
+  if (isEnding || recorder.status === 'processing') {
+    return (
+      <div className="space-y-4">
+        <SessionEnding />
+      </div>
+    )
+  }
 
   // --- Idle state: show two mode selection buttons ---
   if (mode === 'idle') {
@@ -278,16 +300,6 @@ export function SessionPanel({
           chunks={recorder.chunks}
           isTranscribing={recorder.isTranscribing}
         />
-      )}
-
-      {/* Processing indicator after stopping */}
-      {recorder.status === 'processing' && (
-        <Card className="rounded-none border-border bg-background/40 shadow-none">
-          <CardContent className="flex items-center gap-2 px-4 py-4 text-sm lowercase text-muted-foreground">
-            <span className="h-2 w-2 animate-pulse bg-accent" />
-            extracting memory from transcript...
-          </CardContent>
-        </Card>
       )}
     </div>
   )
