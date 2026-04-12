@@ -4,10 +4,14 @@ import { useCallback, useRef, useState } from 'react'
 import type {
   RecordingStatus,
   TranscriptChunk,
+  TranscriptSegment,
   ExtractionResult,
 } from '@/lib/types'
 
-const CHUNK_INTERVAL_MS = 15_000 // 15 seconds per chunk
+// 30s chunks give whisper/gpt-4o-transcribe enough context to avoid
+// mid-sentence splits that were garbling transcription at 15s.
+const CHUNK_INTERVAL_MS = 30_000
+const AUDIO_BITS_PER_SECOND = 128_000
 
 function getSupportedMimeType(): string {
   const types = [
@@ -19,6 +23,21 @@ function getSupportedMimeType(): string {
     if (MediaRecorder.isTypeSupported(type)) return type
   }
   return 'audio/webm'
+}
+
+// Mixes screen/tab audio and mic into a single stream via Web Audio so
+// MediaRecorder can capture both simultaneously.
+function mixAudioStreams(
+  ctx: AudioContext,
+  sources: MediaStream[]
+): MediaStream {
+  const destination = ctx.createMediaStreamDestination()
+  for (const src of sources) {
+    if (src.getAudioTracks().length === 0) continue
+    const node = ctx.createMediaStreamSource(src)
+    node.connect(destination)
+  }
+  return destination.stream
 }
 
 export function canCaptureSystemAudio(): boolean {
@@ -40,17 +59,33 @@ export function useScreenRecorder() {
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const micStreamRef = useRef<MediaStream | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const mixedStreamRef = useRef<MediaStream | null>(null)
+  const chunkTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // True while recording — gates the stop/restart cycle in startChunkCycle.
+  // Flipped to false in stopRecording so the final onstop doesn't spawn
+  // another recorder after we've torn everything down.
+  const recordingActiveRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const chunkIndexRef = useRef(0)
   const transcriptRef = useRef('')
   // Track in-flight transcription requests
   const pendingRef = useRef(0)
   const [isTranscribing, setIsTranscribing] = useState(false)
+  // Speaker continuity across chunks: known labels seen so far + the last
+  // segment produced, so the next chunk's segmentation can reuse labels.
+  const knownSpeakersRef = useRef<string[]>([])
+  const lastSegmentRef = useRef<TranscriptSegment | null>(null)
 
   const cleanup = useCallback(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current)
       timerRef.current = null
+    }
+    if (chunkTimeoutRef.current) {
+      clearTimeout(chunkTimeoutRef.current)
+      chunkTimeoutRef.current = null
     }
     if (mediaRecorderRef.current?.state !== 'inactive') {
       try {
@@ -58,9 +93,18 @@ export function useScreenRecorder() {
       } catch {}
     }
     mediaRecorderRef.current = null
+    mixedStreamRef.current = null
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
+    }
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((t) => t.stop())
+      micStreamRef.current = null
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {})
+      audioContextRef.current = null
     }
     setStream(null)
   }, [])
@@ -75,19 +119,58 @@ export function useScreenRecorder() {
     try {
       const formData = new FormData()
       formData.append('audio', blob, `chunk-${index}.webm`)
+      // Rolling context: the tail of what's been transcribed so far gives
+      // the model cross-chunk continuity it otherwise lacks.
+      if (transcriptRef.current) {
+        formData.append('prior_context', transcriptRef.current.slice(-400))
+      }
+      // Speaker continuity: send the labels we've already assigned and the
+      // last segment so the next chunk's segmentation can stay consistent.
+      formData.append(
+        'known_speakers',
+        JSON.stringify(knownSpeakersRef.current)
+      )
+      if (lastSegmentRef.current) {
+        formData.append('last_segment', JSON.stringify(lastSegmentRef.current))
+      }
 
       const res = await fetch('/api/transcribe', {
         method: 'POST',
         body: formData,
       })
-      const { text } = await res.json()
+      const { text, segments } = (await res.json()) as {
+        text: string
+        segments?: TranscriptSegment[]
+      }
 
       if (text) {
         transcriptRef.current += (transcriptRef.current ? ' ' : '') + text
         setCurrentTranscript(transcriptRef.current)
+
+        const cleanSegments: TranscriptSegment[] =
+          Array.isArray(segments) && segments.length > 0
+            ? segments
+            : [{ speaker: 'person1', text }]
+
+        // Update known speakers + last segment pointers for continuity.
+        for (const seg of cleanSegments) {
+          if (!knownSpeakersRef.current.includes(seg.speaker)) {
+            knownSpeakersRef.current = [
+              ...knownSpeakersRef.current,
+              seg.speaker,
+            ]
+          }
+        }
+        lastSegmentRef.current = cleanSegments[cleanSegments.length - 1]
+
         setChunks((prev) => [
           ...prev,
-          { text, timestamp: Date.now(), chunk_index: index },
+          {
+            text,
+            timestamp: Date.now(),
+            chunk_index: index,
+            segments: cleanSegments,
+          },
         ])
       }
     } catch (err) {
@@ -98,6 +181,58 @@ export function useScreenRecorder() {
     }
   }, [])
 
+  // Produces one complete, self-contained webm file per chunk.
+  //
+  // Background: MediaRecorder.start(timeslice) only writes the webm/opus
+  // init segment to the FIRST dataavailable blob. Subsequent blobs are
+  // raw clusters that can't be decoded standalone — whisper-1 tolerated
+  // this; gpt-4o-transcribe rejects them with "audio file might be
+  // corrupted". So instead we start a fresh recorder, wait 30s, stop it
+  // (which gives us a complete file), transcribe, and cycle.
+  const startChunkCycle = useCallback(() => {
+    const mixedStream = mixedStreamRef.current
+    if (!mixedStream || !recordingActiveRef.current) return
+
+    const mimeType = getSupportedMimeType()
+    const recorder = new MediaRecorder(mixedStream, {
+      mimeType,
+      audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
+    })
+
+    const pieces: Blob[] = []
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) pieces.push(e.data)
+    }
+    recorder.onstop = () => {
+      // Assemble a complete standalone file from all dataavailable events
+      // emitted by this recorder instance.
+      if (pieces.length > 0) {
+        const blob = new Blob(pieces, { type: mimeType })
+        if (blob.size > 1000) {
+          const index = chunkIndexRef.current++
+          transcribeChunk(blob, index)
+        }
+      }
+      // Cycle into the next chunk only if still recording.
+      if (recordingActiveRef.current) {
+        startChunkCycle()
+      }
+    }
+
+    mediaRecorderRef.current = recorder
+    // No timeslice — let the recorder buffer until we manually stop it,
+    // which is what guarantees a complete, parseable webm file.
+    recorder.start()
+
+    chunkTimeoutRef.current = setTimeout(() => {
+      if (recorder.state !== 'inactive') {
+        try {
+          recorder.stop()
+        } catch {}
+      }
+    }, CHUNK_INTERVAL_MS)
+  }, [transcribeChunk])
+
   const startRecording = useCallback(async () => {
     setError(null)
     setChunks([])
@@ -106,21 +241,14 @@ export function useScreenRecorder() {
     setElapsed(0)
     transcriptRef.current = ''
     chunkIndexRef.current = 0
+    knownSpeakersRef.current = []
+    lastSegmentRef.current = null
 
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: true,
       })
-
-      // Check if we actually got audio tracks
-      const audioTracks = displayStream.getAudioTracks()
-      if (audioTracks.length === 0) {
-        setError(
-          'no audio track captured. make sure to check "share audio" in the browser dialog.'
-        )
-        // Still allow recording for video preview, just no transcription
-      }
 
       streamRef.current = displayStream
       setStream(displayStream)
@@ -130,21 +258,61 @@ export function useScreenRecorder() {
         stopRecording()
       })
 
-      // Set up audio recording if audio tracks available
-      if (audioTracks.length > 0) {
-        const audioStream = new MediaStream(audioTracks)
-        const mimeType = getSupportedMimeType()
-        const recorder = new MediaRecorder(audioStream, { mimeType })
+      // Try to grab the mic in parallel — if the user denies, we fall back
+      // to whatever system audio the display stream gave us.
+      let micStream: MediaStream | null = null
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        })
+        micStreamRef.current = micStream
+      } catch {
+        // Mic denied or unavailable — continue with display audio only.
+      }
 
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            const index = chunkIndexRef.current++
-            transcribeChunk(e.data, index)
-          }
+      const displayAudioTracks = displayStream.getAudioTracks()
+      const hasDisplayAudio = displayAudioTracks.length > 0
+      const hasMic = !!micStream && micStream.getAudioTracks().length > 0
+
+      if (!hasDisplayAudio && !hasMic) {
+        setError(
+          'no audio captured. enable "share audio" in the browser dialog, or allow mic access.'
+        )
+      } else if (!hasDisplayAudio) {
+        setError(
+          'system audio not shared — recording mic only. tick "share audio" next time to capture both.'
+        )
+      } else if (!hasMic) {
+        setError(
+          'mic not available — recording system audio only. allow mic access to capture your voice.'
+        )
+      }
+
+      if (hasDisplayAudio || hasMic) {
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext
+        const audioContext = new AudioCtx()
+        audioContextRef.current = audioContext
+
+        const sources: MediaStream[] = []
+        if (hasDisplayAudio) {
+          sources.push(new MediaStream(displayAudioTracks))
         }
+        if (hasMic && micStream) {
+          sources.push(micStream)
+        }
+        const mixedStream = mixAudioStreams(audioContext, sources)
+        mixedStreamRef.current = mixedStream
 
-        mediaRecorderRef.current = recorder
-        recorder.start(CHUNK_INTERVAL_MS)
+        recordingActiveRef.current = true
+        startChunkCycle()
       }
 
       // Start elapsed timer
@@ -158,22 +326,32 @@ export function useScreenRecorder() {
       setError('screen share cancelled or denied.')
       cleanup()
     }
-  }, [cleanup, transcribeChunk])
+  }, [cleanup, startChunkCycle])
 
   const stopRecording = useCallback(async () => {
-    // Stop the media recorder (triggers final ondataavailable)
+    // Flip the flag FIRST so the in-flight recorder's onstop doesn't
+    // start a new chunk cycle after we tear things down.
+    recordingActiveRef.current = false
+    if (chunkTimeoutRef.current) {
+      clearTimeout(chunkTimeoutRef.current)
+      chunkTimeoutRef.current = null
+    }
+    // Stop the current recorder — its onstop handler will assemble the
+    // final blob and kick off one last transcribeChunk call.
     if (
       mediaRecorderRef.current &&
       mediaRecorderRef.current.state !== 'inactive'
     ) {
-      mediaRecorderRef.current.stop()
+      try {
+        mediaRecorderRef.current.stop()
+      } catch {}
     }
 
     cleanup()
     setStatus('processing')
 
-    // Wait a beat for any final chunk transcription to finish
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait a beat for the final onstop + transcription to finish.
+    await new Promise((resolve) => setTimeout(resolve, 3000))
 
     const fullTranscript = transcriptRef.current
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -10,13 +10,14 @@ import {
   PanelLeftOpen,
   Play,
   MessageSquare,
+  Plug,
   Settings,
   Sparkles,
   Users,
 } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { activeLoops } from '@/lib/dashboard-data'
+import type { Person } from '@/lib/types'
 
 const navItems = [
   { label: 'overview', href: '/dashboard/overview', icon: LayoutDashboard },
@@ -24,6 +25,7 @@ const navItems = [
   { label: 'people', href: '/dashboard/people', icon: Users },
   { label: 'chat', href: '/dashboard/chat', icon: MessageSquare },
   { label: 'history', href: '/dashboard/history', icon: History },
+  { label: 'integrations', href: '/dashboard/integrations', icon: Plug },
   { label: 'settings', href: '/dashboard/settings', icon: Settings },
 ]
 
@@ -34,6 +36,41 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [loopsCount, setLoopsCount] = useState<number | null>(null)
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
+
+  // Poll for active loops on mount + whenever the user navigates between
+  // dashboard pages. Cheap because the list is bounded and cached by Nia.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/memory?type=person')
+      .then((r) => r.json())
+      .then((data: { people?: Person[] }) => {
+        if (cancelled) return
+        const total = Array.isArray(data.people)
+          ? data.people.reduce(
+              (sum, p) => sum + (p.open_loops?.length || 0),
+              0,
+            )
+          : 0
+        setLoopsCount(total)
+        setLastSyncedAt(new Date())
+      })
+      .catch(() => {
+        if (!cancelled) setLoopsCount(0)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [pathname])
+
+  const loopsLabel = loopsCount === null ? '—' : loopsCount
+  const syncLabel = lastSyncedAt
+    ? `last sync: ${lastSyncedAt.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`
+    : 'last sync: pending'
 
   return (
     <main className="h-screen w-screen overflow-hidden bg-background text-foreground">
@@ -82,9 +119,9 @@ export default function DashboardLayout({
           <div className="space-y-2 border border-border bg-background/30 p-3 text-xs lowercase text-muted-foreground">
             <p className="flex items-center gap-2">
               <Sparkles className="h-3.5 w-3.5" />
-              {activeLoops.length} active loops
+              {loopsLabel} active loops
             </p>
-            <p>last sync: 2 min ago</p>
+            <p>{syncLabel}</p>
           </div>
             </>
           ) : (

@@ -3,6 +3,8 @@ import {
   savePersonContext,
   saveEpisodeContext,
   searchMemory,
+  listPeople,
+  listEpisodes,
 } from '@/lib/nia'
 import type { Person, Episode } from '@/lib/types'
 
@@ -37,18 +39,32 @@ export async function POST(request: Request) {
   }
 }
 
-// GET: Search memories via Nia semantic search
+// GET:
+//   ?type=person   → list all people stored by secondbrain (sorted newest)
+//   ?type=episode  → list all episodes (sorted newest)
+//   ?q=<query>     → semantic search across all contexts
 export async function GET(request: NextRequest) {
   try {
-    const q = request.nextUrl.searchParams.get('q') || ''
+    const type = request.nextUrl.searchParams.get('type')
     const limit = parseInt(
-      request.nextUrl.searchParams.get('limit') || '20',
+      request.nextUrl.searchParams.get('limit') || '100',
       10
     )
 
+    if (type === 'person') {
+      const people = await listPeople(limit)
+      return NextResponse.json({ people })
+    }
+
+    if (type === 'episode') {
+      const episodes = await listEpisodes(limit)
+      return NextResponse.json({ episodes })
+    }
+
+    const q = request.nextUrl.searchParams.get('q') || ''
     if (!q) {
       return NextResponse.json(
-        { error: 'query parameter "q" required' },
+        { error: 'query parameter "q" or "type" required' },
         { status: 400 }
       )
     }
@@ -56,7 +72,10 @@ export async function GET(request: NextRequest) {
     const results = await searchMemory(q, limit)
     return NextResponse.json({ results })
   } catch (err) {
-    console.error('memory search error:', err)
-    return NextResponse.json({ results: [] })
+    console.error('memory GET error:', err)
+    return NextResponse.json(
+      { error: 'failed to fetch memory' },
+      { status: 500 }
+    )
   }
 }
