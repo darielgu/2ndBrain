@@ -218,8 +218,17 @@ export function SessionPanel({
         {/* Show extraction result after a recording finishes */}
         {recorder.extraction && (
           <>
-            <ExtractionCard extraction={recorder.extraction} />
+            <ExtractionCard
+              extraction={recorder.extraction}
+              visualPeople={recorder.visualPeople}
+            />
             <ActionProposals extraction={recorder.extraction} />
+            {recorder.chunks.length > 0 && (
+              <LiveTranscript
+                chunks={recorder.chunks}
+                isTranscribing={false}
+              />
+            )}
           </>
         )}
       </div>

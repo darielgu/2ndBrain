@@ -1,5 +1,10 @@
 import OpenAI from 'openai'
-import type { ExtractionResult, TranscriptSegment } from './types'
+import type {
+  BBox,
+  ExtractionResult,
+  FrameAnalysis,
+  TranscriptSegment,
+} from './types'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -173,5 +178,120 @@ export async function extractMemory(
     promises: parsed.promises || [],
     next_actions: (parsed.next_actions || []).slice(0, 3),
     episode_prose: parsed.episode_prose || '',
+  }
+}
+
+// --- Vision: Google Meet frame analysis ---
+// Sampled frames from screen recordings are sent here one at a time.
+// Returns the detected participants + who (if anyone) is the active
+// speaker in this frame. Bboxes are normalized to [0, 1] because models
+// handle normalized coords more consistently than raw pixels.
+
+const MEET_VISION_SYSTEM_PROMPT = `you are a computer vision agent analyzing a screenshot. return only valid json matching this schema:
+
+{
+  "is_meet": boolean,
+  "detections": [
+    { "name": string, "tile_bbox": [number, number, number, number], "active": boolean }
+  ]
+}
+
+instructions:
+1. determine if this is a google meet video call screenshot. look for: grid of video tiles, participant name labels, meet ui bar. if not, return is_meet=false and detections=[].
+2. if it is google meet: for each visible participant tile with a readable name:
+   - "name": exactly as shown in the name label (preserve case and spacing). if you only see a "you" label, use the literal string "you".
+   - "tile_bbox": [x, y, w, h] normalized to [0, 1] where (0,0) is top-left and (1,1) is bottom-right. tightly enclose the participant's video tile including the name label strip at the bottom.
+   - "active": true only if this tile has a visible colored border (typically blue) indicating they are the currently active speaker. at most one tile should have active=true. if no tile clearly shows an active-speaker border, set active=false for all.
+3. only include tiles where the name is clearly legible. skip tiles where you can't read the name.
+4. return at most 9 detections.
+5. precision over recall — skip ambiguous tiles rather than guess names.`
+
+function clamp01(n: unknown): number {
+  const v = typeof n === 'number' && Number.isFinite(n) ? n : 0
+  if (v < 0) return 0
+  if (v > 1) return 1
+  return v
+}
+
+function parseBBox(raw: unknown): BBox | null {
+  if (!Array.isArray(raw) || raw.length !== 4) return null
+  const [x, y, w, h] = raw.map(clamp01) as [number, number, number, number]
+  if (w <= 0 || h <= 0) return null
+  return [x, y, w, h]
+}
+
+export async function analyzeMeetFrame(
+  dataUrl: string,
+  t_ms: number
+): Promise<FrameAnalysis> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: MEET_VISION_SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'analyze this frame and return the json.',
+            },
+            {
+              type: 'image_url',
+              image_url: { url: dataUrl, detail: 'low' },
+            },
+          ],
+        },
+      ],
+      temperature: 0,
+      max_tokens: 600,
+    })
+
+    const content = response.choices[0]?.message?.content
+    if (!content) {
+      return { t_ms, is_meet: false, detections: [] }
+    }
+
+    const parsed = JSON.parse(content) as {
+      is_meet?: boolean
+      detections?: Array<{
+        name?: unknown
+        tile_bbox?: unknown
+        active?: unknown
+      }>
+    }
+
+    if (!parsed.is_meet) {
+      return { t_ms, is_meet: false, detections: [] }
+    }
+
+    const detections = (parsed.detections || [])
+      .map((d) => {
+        const bbox = parseBBox(d.tile_bbox)
+        const name = typeof d.name === 'string' ? d.name.trim() : ''
+        if (!bbox || !name) return null
+        return {
+          name,
+          tile_bbox: bbox,
+          active: d.active === true,
+        }
+      })
+      .filter((d): d is NonNullable<typeof d> => d !== null)
+      .slice(0, 9)
+
+    // Enforce "at most one active per frame" in case the model slipped.
+    let sawActive = false
+    for (const d of detections) {
+      if (d.active) {
+        if (sawActive) d.active = false
+        else sawActive = true
+      }
+    }
+
+    return { t_ms, is_meet: true, detections }
+  } catch (err) {
+    console.error('vision analyze failed:', err)
+    return { t_ms, is_meet: false, detections: [] }
   }
 }

@@ -43,6 +43,7 @@ export function getDb(): Database.Database {
       open_loops      TEXT NOT NULL DEFAULT '[]',
       notes           TEXT NOT NULL DEFAULT '[]',
       prose           TEXT,
+      face_image      TEXT,
       last_seen       TEXT,
       nia_context_id  TEXT,
       created_at      INTEGER NOT NULL,
@@ -65,9 +66,10 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_episodes_timestamp ON episodes(timestamp DESC);
   `)
 
-  // Idempotent column additions for manual enrichment fields. Safe to call
-  // on every boot — sqlite throws on duplicate ADD COLUMN which we swallow.
-  const manualColumns: Array<[string, string]> = [
+  // Forward migrations for pre-existing dbs. ALTER TABLE ADD COLUMN throws
+  // on duplicate — swallow it so reboots are idempotent.
+  const addColumns: Array<[string, string]> = [
+    ['face_image', 'TEXT'],
     ['email', 'TEXT'],
     ['job_title', 'TEXT'],
     ['company', 'TEXT'],
@@ -76,7 +78,7 @@ export function getDb(): Database.Database {
     ['twitter', 'TEXT'],
     ['manual_notes', 'TEXT'],
   ]
-  for (const [col, type] of manualColumns) {
+  for (const [col, type] of addColumns) {
     try {
       db.exec(`ALTER TABLE people ADD COLUMN ${col} ${type}`)
     } catch {
@@ -161,6 +163,7 @@ interface PersonRow {
   open_loops: string
   notes: string
   prose: string | null
+  face_image: string | null
   last_seen: string | null
   nia_context_id: string | null
   created_at: number
@@ -183,6 +186,7 @@ function rowToPerson(row: PersonRow): Person {
     open_loops: safeJsonArray(row.open_loops),
     notes: safeJsonArray(row.notes),
     prose: row.prose || undefined,
+    face_image: row.face_image || undefined,
     last_seen: row.last_seen || '',
     nia_context_id: row.nia_context_id || undefined,
     email: row.email || undefined,
@@ -220,11 +224,11 @@ export function upsertPerson(person: Person): void {
   db.prepare(
     `INSERT INTO people (
       person_id, name, where_met, summary, open_loops, notes, prose,
-      last_seen, nia_context_id, created_at, updated_at,
+      face_image, last_seen, nia_context_id, created_at, updated_at,
       email, job_title, company, linkedin_url, instagram, twitter, manual_notes
     ) VALUES (
       @person_id, @name, @where_met, @summary, @open_loops, @notes, @prose,
-      @last_seen, @nia_context_id, @created_at, @updated_at,
+      @face_image, @last_seen, @nia_context_id, @created_at, @updated_at,
       @email, @job_title, @company, @linkedin_url, @instagram, @twitter, @manual_notes
     )
     ON CONFLICT(person_id) DO UPDATE SET
@@ -234,6 +238,7 @@ export function upsertPerson(person: Person): void {
       open_loops     = excluded.open_loops,
       notes          = excluded.notes,
       prose          = excluded.prose,
+      face_image     = COALESCE(excluded.face_image, people.face_image),
       last_seen      = excluded.last_seen,
       nia_context_id = COALESCE(excluded.nia_context_id, people.nia_context_id),
       updated_at     = excluded.updated_at,
@@ -252,6 +257,7 @@ export function upsertPerson(person: Person): void {
     open_loops: JSON.stringify(person.open_loops || []),
     notes: JSON.stringify(person.notes || []),
     prose: person.prose || null,
+    face_image: person.face_image || null,
     last_seen: person.last_seen || null,
     nia_context_id: person.nia_context_id || null,
     created_at: existing?.created_at ?? now,

@@ -106,11 +106,27 @@ export function PeopleGrid({ people: initialPeople }: { people: Person[] }) {
             key={person.person_id}
             className="flex flex-col gap-2 border border-border bg-background/40 p-3"
           >
-            <div>
-              <p className="text-sm lowercase">{person.name}</p>
-              <p className="text-[11px] lowercase text-muted-foreground">
-                last seen {formatLastSeen(person.last_seen)}
-              </p>
+            <div className="flex items-start gap-3">
+              {person.face_image ? (
+                // base64 data URL captured passively from meet frames —
+                // next/image can't optimize it, so a raw img tag is correct.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={person.face_image}
+                  alt={`face of ${person.name}`}
+                  className="h-14 w-14 shrink-0 border border-border object-cover"
+                />
+              ) : (
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center border border-border bg-secondary/30 font-mono text-[10px] lowercase text-muted-foreground">
+                  {(person.name || '?').slice(0, 2)}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm lowercase">{person.name}</p>
+                <p className="text-[11px] lowercase text-muted-foreground">
+                  last seen {formatLastSeen(person.last_seen)}
+                </p>
+              </div>
             </div>
 
             {person.where_met ? (

@@ -19,6 +19,12 @@ export interface Person {
    * on updates.
    */
   prose?: string
+  /**
+   * base64 data URL of a cropped face thumbnail. Captured passively from
+   * screen recordings (meet grid tiles) so the webcam-side recognition
+   * pipeline has an enrollment image to match against next time.
+   */
+  face_image?: string
   nia_context_id?: string
   // --- manual enrichment fields (user-entered contact + social links) ---
   email?: string
@@ -87,4 +93,57 @@ export interface TranscriptChunk {
    * fall back to `text`.
    */
   segments?: TranscriptSegment[]
+}
+
+// --- Vision pipeline (screen recording → Meet face detection) ---
+
+/**
+ * A single frame captured off the screen-share video track during a
+ * recording session. t_ms is milliseconds since recording start — used
+ * to align frames with audio chunks for speaker label remapping.
+ * width/height are the dimensions of the JPEG in the blob; bboxes
+ * returned from vision analysis are relative to these dimensions.
+ */
+export interface SampledFrame {
+  t_ms: number
+  blob: Blob
+  width: number
+  height: number
+}
+
+/**
+ * Bounding box in pixels, relative to the frame's width/height.
+ * [x, y, w, h] matches the format we ask GPT-4o vision to return.
+ */
+export type BBox = [number, number, number, number]
+
+/**
+ * One speaker detected in a single frame. active=true means they had
+ * the Meet "active speaker" border at capture time. tile_bbox is the
+ * whole participant tile (face + name strip), normalized to [0, 1];
+ * the client derives a face-region crop from the top portion of it.
+ */
+export interface DetectedPerson {
+  name: string
+  tile_bbox: BBox
+  active: boolean
+}
+
+/**
+ * Vision-analysis result for a single frame.
+ */
+export interface FrameAnalysis {
+  t_ms: number
+  is_meet: boolean
+  detections: DetectedPerson[]
+}
+
+/**
+ * Final per-person visual record after frame analysis + cropping.
+ * face_image is a base64 data URL (image/jpeg) ready to persist.
+ */
+export interface VisualPerson {
+  name: string
+  face_image: string
+  active_frame_count: number
 }
