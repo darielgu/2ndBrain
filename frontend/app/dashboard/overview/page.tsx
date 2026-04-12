@@ -1,6 +1,7 @@
 import { Link2, UserRound } from 'lucide-react'
 import { listEpisodes, listPeople } from '@/lib/nia'
 import type { Person } from '@/lib/types'
+import { SyncGoogleCard } from '@/components/sync-google-card'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,6 +47,8 @@ export default async function OverviewPage() {
           relationship memory overview
         </h1>
       </div>
+
+      <SyncGoogleCard />
 
       <div className="border border-border bg-background/30 p-4">
         <p className="mb-3 flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">
