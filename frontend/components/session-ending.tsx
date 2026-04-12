@@ -138,11 +138,21 @@ export function SessionEnding() {
           })}
         </ol>
 
-        <div className="border-t border-border pt-3 font-mono text-[10px] lowercase tracking-wider text-muted-foreground">
-          <span className="session-ending-marquee inline-block">
-            writing episode to nia context store · deduping people ·
-            regenerating prose · embedding for retrieval ·
-          </span>
+        <div className="overflow-hidden border-t border-border pt-3 font-mono text-[10px] lowercase tracking-wider text-muted-foreground">
+          <div className="session-ending-marquee flex w-max gap-6 whitespace-nowrap">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <span key={i} className="flex shrink-0 items-center gap-6">
+                <span>writing episode to nia context store</span>
+                <span>·</span>
+                <span>deduping people</span>
+                <span>·</span>
+                <span>regenerating prose</span>
+                <span>·</span>
+                <span>embedding for retrieval</span>
+                <span>·</span>
+              </span>
+            ))}
+          </div>
         </div>
       </CardContent>
     </Card>

@@ -249,8 +249,9 @@
 }
 
 .session-ending-marquee {
-  animation: session-ending-marquee 12s linear infinite;
+  animation: session-ending-marquee 18s linear infinite;
   white-space: nowrap;
+  will-change: transform;
 }
 
 @keyframes session-ending-marquee {
@@ -258,7 +259,8 @@
     transform: translateX(0);
   }
   100% {
-    transform: translateX(-40%);
+    /* content is duplicated twice — shift exactly one copy for seamless loop */
+    transform: translateX(-50%);
   }
 }
 
