@@ -4,6 +4,7 @@ import {
   upsertEpisode,
   listPeopleDb,
   listEpisodesDb,
+  getPerson,
 } from './db'
 
 const NIA_BASE_URL = process.env.NIA_BASE_URL || 'https://apigcp.trynia.ai/v2'
@@ -271,86 +272,105 @@ export async function findPersonByPersonId(
 // buildPersonProse() so that Nia's vector index stays consistent with the
 // merged metadata.
 export async function savePersonContext(person: Person): Promise<string> {
-  const existing = await findPersonByPersonId(person.person_id)
+  // --- step 1: local sqlite is authoritative for the UI. always write it ---
+  // first so the /people tab reflects the session even if nia is slow or
+  // unreachable. merge against whatever we already have locally so repeated
+  // encounters accumulate instead of overwrite.
+  const existingLocal = getPerson(person.person_id)
+  const merged: Person = existingLocal
+    ? {
+        person_id: person.person_id,
+        name: existingLocal.name || person.name, // keep first encounter name
+        where_met: existingLocal.where_met || person.where_met,
+        summary: person.summary || existingLocal.summary,
+        open_loops: Array.from(
+          new Set([
+            ...(existingLocal.open_loops || []),
+            ...(person.open_loops || []),
+          ]),
+        ),
+        last_seen: person.last_seen || existingLocal.last_seen,
+        notes: [...(existingLocal.notes || []), ...(person.notes || [])],
+        prose: person.prose || existingLocal.prose,
+        // Preserve first-captured face unless a new crop is supplied.
+        face_image: person.face_image || existingLocal.face_image,
+        nia_context_id: existingLocal.nia_context_id,
+        // Manual enrichment fields carry forward via COALESCE in upsertPerson.
+        email: person.email || existingLocal.email,
+        job_title: person.job_title || existingLocal.job_title,
+        company: person.company || existingLocal.company,
+        linkedin_url: person.linkedin_url || existingLocal.linkedin_url,
+        instagram: person.instagram || existingLocal.instagram,
+        twitter: person.twitter || existingLocal.twitter,
+        manual_notes: person.manual_notes || existingLocal.manual_notes,
+      }
+    : { ...person }
 
-  if (existing) {
-    const merged: Person = {
-      person_id: person.person_id,
-      name: existing.person.name || person.name, // keep first encounter name
-      where_met: existing.person.where_met || person.where_met, // keep first encounter
-      summary: person.summary || existing.person.summary, // prefer newer non-empty
-      open_loops: Array.from(
-        new Set([
-          ...(existing.person.open_loops || []),
-          ...(person.open_loops || []),
-        ])
-      ),
-      last_seen: person.last_seen || existing.person.last_seen, // newer wins
-      notes: [
-        ...(existing.person.notes || []),
-        ...(person.notes || []),
-      ],
-      prose: person.prose || existing.person.prose,
-      // face_image is sqlite-only; pass the new one through — upsertPerson
-      // uses COALESCE to preserve the existing image when the new one is
-      // null, so first-capture wins until a fresh crop arrives.
-      face_image: person.face_image,
-    }
+  try {
+    upsertPerson(merged)
+  } catch (err) {
+    console.error('sqlite upsertPerson failed:', err)
+  }
+
+  // --- step 2: best-effort nia sync. failures are logged, not thrown ---
+  // the user already has the person locally; nia gives us semantic search.
+  try {
+    const existing = await findPersonByPersonId(person.person_id)
 
     const rawContent = buildPersonProse(merged)
     const rawSummary = `${merged.name} — met at ${merged.where_met}. ${merged.summary}`.trim()
     const { title, summary, content } = buildPersonFields(
       merged,
       rawSummary,
-      rawContent
+      rawContent,
     )
 
-    await updateContext(existing.context_id, {
-      title,
-      summary,
-      content,
-      metadata: personToMetadata(merged),
-      tags: ['person', merged.person_id],
+    if (existing) {
+      await updateContext(existing.context_id, {
+        title,
+        summary,
+        content,
+        metadata: personToMetadata(merged),
+        tags: ['person', merged.person_id],
+      })
+      // Back-fill nia_context_id into sqlite if it wasn't there yet.
+      if (merged.nia_context_id !== existing.context_id) {
+        try {
+          upsertPerson({ ...merged, nia_context_id: existing.context_id })
+        } catch (err) {
+          console.error('sqlite back-fill nia_context_id failed:', err)
+        }
+      }
+      return existing.context_id
+    }
+
+    const data = await niaFetch('/contexts', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        summary,
+        content,
+        agent_source: 'secondbrain',
+        memory_type: 'fact',
+        tags: ['person', merged.person_id],
+        metadata: personToMetadata(merged),
+      }),
     })
 
     try {
-      upsertPerson({ ...merged, nia_context_id: existing.context_id })
+      upsertPerson({ ...merged, nia_context_id: data.id })
     } catch (err) {
-      console.error('sqlite upsertPerson (merge) failed:', err)
+      console.error('sqlite back-fill nia_context_id failed:', err)
     }
 
-    return existing.context_id
-  }
-
-  // No existing match — create a new context
-  const rawContent = person.prose || buildPersonProse(person)
-  const rawSummary = `${person.name} — met at ${person.where_met}. ${person.summary}`.trim()
-  const { title, summary, content } = buildPersonFields(
-    person,
-    rawSummary,
-    rawContent
-  )
-
-  const data = await niaFetch('/contexts', {
-    method: 'POST',
-    body: JSON.stringify({
-      title,
-      summary,
-      content,
-      agent_source: 'secondbrain',
-      memory_type: 'fact',
-      tags: ['person', person.person_id],
-      metadata: personToMetadata(person),
-    }),
-  })
-
-  try {
-    upsertPerson({ ...person, nia_context_id: data.id })
+    return data.id
   } catch (err) {
-    console.error('sqlite upsertPerson (create) failed:', err)
+    console.error(
+      `nia sync failed for ${merged.person_id} — sqlite is still updated:`,
+      err,
+    )
+    return merged.nia_context_id || ''
   }
-
-  return data.id
 }
 
 function buildPersonFields(
