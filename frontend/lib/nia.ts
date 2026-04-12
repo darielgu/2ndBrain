@@ -198,10 +198,15 @@ export async function findPersonByPersonId(
   // most one context. Falls back to semantic search if the list returns
   // nothing — covers records created before the per-id tag convention.
   try {
+    // Single-tag filter only. Nia's comma-separated tag filter semantics
+    // aren't documented clearly, and passing two tags silently missed
+    // existing records — causing dedupe to fail and create duplicates.
+    // A single 'person' tag + post-filter by metadata.person_id is
+    // deterministic regardless of the server's tag-filter interpretation.
     const viaList = await listContexts({
-      tags: ['person', person_id],
+      tags: ['person'],
       agent_source: 'secondbrain',
-      limit: 5,
+      limit: 100,
     })
     const listMatch = viaList.find((r) => {
       const meta = r.metadata as Record<string, unknown> | null
@@ -429,6 +434,11 @@ export async function listContexts(params: {
 // memory_type because Nia's search stack has historically returned
 // unreliable values for that field; the tags + metadata shape is
 // deterministic and sufficient.
+//
+// Also deduplicates by person_id in memory. Duplicates can exist in Nia
+// when the save-time dedupe lookup misses (e.g. during a race between
+// two concurrent sessions), and React needs unique keys to render. The
+// record with the most recent last_seen wins.
 export async function listPeople(limit = 100): Promise<Person[]> {
   const results = await listContexts({
     tags: ['person'],
@@ -436,14 +446,30 @@ export async function listPeople(limit = 100): Promise<Person[]> {
     limit,
   })
 
-  return results
+  const parsed = results
     .map((r) => {
       const meta = r.metadata as Record<string, unknown> | null | undefined
       if (!meta || typeof meta.episode_id === 'string') return null
       return metadataToPerson(meta, typeof r.id === 'string' ? r.id : undefined)
     })
     .filter((p): p is Person => p !== null)
-    .sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''))
+
+  const byId = new Map<string, Person>()
+  for (const person of parsed) {
+    const existing = byId.get(person.person_id)
+    if (!existing) {
+      byId.set(person.person_id, person)
+      continue
+    }
+    // Keep the entry with the most recent last_seen. Empty last_seen loses.
+    if ((person.last_seen || '') > (existing.last_seen || '')) {
+      byId.set(person.person_id, person)
+    }
+  }
+
+  return Array.from(byId.values()).sort((a, b) =>
+    (b.last_seen || '').localeCompare(a.last_seen || '')
+  )
 }
 
 // --- List all episodes stored by secondbrain ---
