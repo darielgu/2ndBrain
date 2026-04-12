@@ -1,9 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, MessageSquare, UserPlus, Users } from 'lucide-react'
 import { PromptInputBox } from '@/components/ui/ai-prompt-box'
-import { people } from '@/lib/dashboard-data'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
@@ -13,13 +12,43 @@ type ChatMessage = {
   text: string
 }
 
+type DashboardPerson = {
+  person_id: string
+  name: string
+  where_met: string
+  open_loops: string[]
+}
+
 export default function ChatPage() {
   const [selectedPeopleIds, setSelectedPeopleIds] = useState<string[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [people, setPeople] = useState<DashboardPerson[]>([])
+  const [loadingPeople, setLoadingPeople] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/recognition/dashboard')
+      .then(async (res) => {
+        const json = (await res.json()) as { profiles?: DashboardPerson[] }
+        if (!cancelled) {
+          setPeople(Array.isArray(json.profiles) ? json.profiles : [])
+        }
+      })
+      .catch((err) => {
+        console.error('failed to load dashboard people:', err)
+        if (!cancelled) setPeople([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPeople(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const selectedPeople = useMemo(
-    () => people.filter((person) => selectedPeopleIds.includes(person.id)),
-    [selectedPeopleIds],
+    () => people.filter((person) => selectedPeopleIds.includes(person.person_id)),
+    [selectedPeopleIds, people],
   )
 
   const togglePerson = (personId: string) => {
@@ -73,30 +102,38 @@ export default function ChatPage() {
               <Users className="h-3.5 w-3.5" />
               add indexed people
             </div>
-            <div className="space-y-1">
-              {people.map((person) => {
-                const isSelected = selectedPeopleIds.includes(person.id)
+            {loadingPeople ? (
+              <p className="px-2 py-2 text-xs lowercase text-muted-foreground">loading people...</p>
+            ) : people.length === 0 ? (
+              <p className="px-2 py-2 text-xs lowercase text-muted-foreground">
+                no indexed people yet. start a session first.
+              </p>
+            ) : (
+              <div className="space-y-1">
+                {people.map((person) => {
+                  const isSelected = selectedPeopleIds.includes(person.person_id)
 
-                return (
-                  <button
-                    key={person.id}
-                    type="button"
-                    onClick={() => togglePerson(person.id)}
-                    className="flex w-full items-start justify-between rounded-sm border border-transparent px-2 py-2 text-left transition-all duration-150 hover:border-border hover:bg-secondary/40"
-                  >
-                    <div>
-                      <p className="text-xs lowercase text-foreground">{person.name}</p>
-                      <p className="text-[11px] lowercase text-muted-foreground">
-                        {person.whereMet} • open loop: {person.openLoop}
-                      </p>
-                    </div>
-                    <span className="mt-0.5 h-4 w-4 text-foreground">
-                      {isSelected && <Check className="h-4 w-4" />}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
+                  return (
+                    <button
+                      key={person.person_id}
+                      type="button"
+                      onClick={() => togglePerson(person.person_id)}
+                      className="flex w-full items-start justify-between rounded-sm border border-transparent px-2 py-2 text-left transition-all duration-150 hover:border-border hover:bg-secondary/40"
+                    >
+                      <div>
+                        <p className="text-xs lowercase text-foreground">{person.name}</p>
+                        <p className="text-[11px] lowercase text-muted-foreground">
+                          {person.where_met} • open loop: {(person.open_loops[0] || 'none').toLowerCase()}
+                        </p>
+                      </div>
+                      <span className="mt-0.5 h-4 w-4 text-foreground">
+                        {isSelected && <Check className="h-4 w-4" />}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </PopoverContent>
         </Popover>
       }

@@ -21,6 +21,17 @@ function getSupportedMimeType(): string {
   return 'audio/webm'
 }
 
+function extensionForMimeType(mimeType: string): string {
+  if (mimeType.includes('webm')) return 'webm'
+  if (mimeType.includes('mp4')) return 'mp4'
+  if (mimeType.includes('ogg') || mimeType.includes('oga')) return 'ogg'
+  if (mimeType.includes('wav')) return 'wav'
+  if (mimeType.includes('mpeg') || mimeType.includes('mp3') || mimeType.includes('mpga')) return 'mp3'
+  if (mimeType.includes('flac')) return 'flac'
+  if (mimeType.includes('m4a')) return 'm4a'
+  return 'webm'
+}
+
 export function canCaptureSystemAudio(): boolean {
   return (
     typeof navigator !== 'undefined' &&
@@ -74,13 +85,18 @@ export function useScreenRecorder() {
 
     try {
       const formData = new FormData()
-      formData.append('audio', blob, `chunk-${index}.webm`)
+      const ext = extensionForMimeType(blob.type || 'audio/webm')
+      formData.append('audio', blob, `chunk-${index}.${ext}`)
 
       const res = await fetch('/api/transcribe', {
         method: 'POST',
         body: formData,
       })
-      const { text } = await res.json()
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(payload.error || `transcription failed (${res.status})`)
+      }
+      const { text } = (await res.json()) as { text?: string }
 
       if (text) {
         transcriptRef.current += (transcriptRef.current ? ' ' : '') + text

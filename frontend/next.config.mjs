@@ -13,6 +13,9 @@ const nextConfig = {
   },
   turbopack: {
     root: __dirname,
+    resolveAlias: {
+      '@vladmandic/human': './node_modules/@vladmandic/human/dist/human.esm.js',
+    },
   },
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -16,7 +16,6 @@ import {
 } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { activeLoops } from '@/lib/dashboard-data'
 
 const navItems = [
   { label: 'overview', href: '/dashboard/overview', icon: LayoutDashboard },
@@ -27,6 +26,11 @@ const navItems = [
   { label: 'settings', href: '/dashboard/settings', icon: Settings },
 ]
 
+type DashboardSnapshot = {
+  generated_at: string
+  active_loops: string[]
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -34,6 +38,73 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [activeLoopCount, setActiveLoopCount] = useState(0)
+  const [lastSync, setLastSync] = useState('pending')
+
+  useEffect(() => {
+    let cancelled = false
+    let inFlight = false
+    let activeController: AbortController | null = null
+
+    const load = async () => {
+      if (cancelled || inFlight) return
+      inFlight = true
+      activeController?.abort()
+      activeController = new AbortController()
+
+      try {
+        let json: DashboardSnapshot | null = null
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const res = await fetch('/api/recognition/dashboard', {
+              cache: 'no-store',
+              signal: activeController.signal,
+            })
+            if (!res.ok) {
+              throw new Error(`dashboard fetch failed (${res.status})`)
+            }
+            json = (await res.json()) as DashboardSnapshot
+            break
+          } catch (err) {
+            if ((err as { name?: string })?.name === 'AbortError') return
+            if (attempt === 1) throw err
+            await new Promise((resolve) => setTimeout(resolve, 350))
+          }
+        }
+
+        if (!json) return
+        if (cancelled) return
+        setActiveLoopCount(Array.isArray(json.active_loops) ? json.active_loops.length : 0)
+        setLastSync(
+          json.generated_at
+            ? new Date(json.generated_at).toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+              })
+            : 'pending'
+        )
+      } catch (err) {
+        if ((err as { name?: string })?.name === 'AbortError') return
+        console.warn('dashboard snapshot unavailable (transient):', err)
+        if (!cancelled) {
+          setActiveLoopCount(0)
+          setLastSync('pending')
+        }
+      } finally {
+        inFlight = false
+      }
+    }
+
+    load()
+    const interval = setInterval(load, 20_000)
+
+    return () => {
+      cancelled = true
+      activeController?.abort()
+      clearInterval(interval)
+    }
+  }, [])
 
   return (
     <main className="h-screen w-screen overflow-hidden bg-background text-foreground">
@@ -82,9 +153,9 @@ export default function DashboardLayout({
           <div className="space-y-2 border border-border bg-background/30 p-3 text-xs lowercase text-muted-foreground">
             <p className="flex items-center gap-2">
               <Sparkles className="h-3.5 w-3.5" />
-              {activeLoops.length} active loops
+              {activeLoopCount} active loops
             </p>
-            <p>last sync: 2 min ago</p>
+            <p>last sync: {lastSync}</p>
           </div>
             </>
           ) : (

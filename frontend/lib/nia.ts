@@ -2,23 +2,79 @@ import type { Person, Episode } from './types'
 
 const NIA_BASE_URL = process.env.NIA_BASE_URL || 'https://apigcp.trynia.ai/v2'
 const NIA_API_KEY = process.env.NIA_API_KEY || ''
+const NIA_TIMEOUT_MS = Number(process.env.NIA_TIMEOUT_MS || 25_000)
+const NIA_MAX_RETRIES = Number(process.env.NIA_MAX_RETRIES || 2)
+const NIA_RETRY_BASE_MS = Number(process.env.NIA_RETRY_BASE_MS || 350)
+
+export interface NiaUpsertResult {
+  id: string
+  action: 'created' | 'updated'
+}
+
+const NIA_MIN_CONTENT_CHARS = 50
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRetriableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
+function isRetriableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    message.includes('fetch failed') ||
+    message.includes('UND_ERR_HEADERS_TIMEOUT') ||
+    message.includes('timed out') ||
+    message.includes('ECONNRESET') ||
+    message.includes('ETIMEDOUT')
+  )
+}
 
 async function niaFetch(path: string, options: RequestInit = {}) {
-  const res = await fetch(`${NIA_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${NIA_API_KEY}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  })
+  let lastError: Error | null = null
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`nia ${options.method || 'GET'} ${path} failed (${res.status}): ${body}`)
+  for (let attempt = 0; attempt <= NIA_MAX_RETRIES; attempt++) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), NIA_TIMEOUT_MS)
+    try {
+      const res = await fetch(`${NIA_BASE_URL}${path}`, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${NIA_API_KEY}`,
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+        signal: controller.signal,
+      })
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        const err = new Error(`nia ${options.method || 'GET'} ${path} failed (${res.status}): ${body}`)
+        if (!isRetriableStatus(res.status) || attempt === NIA_MAX_RETRIES) {
+          throw err
+        }
+        lastError = err
+      } else {
+        return res.json()
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err))
+      if (!isRetriableError(error) || attempt === NIA_MAX_RETRIES) {
+        throw error
+      }
+      lastError = error
+    } finally {
+      clearTimeout(timeoutId)
+    }
+
+    const jitter = Math.floor(Math.random() * 80)
+    const backoff = NIA_RETRY_BASE_MS * Math.pow(2, attempt) + jitter
+    await wait(backoff)
   }
 
-  return res.json()
+  throw lastError || new Error(`nia ${options.method || 'GET'} ${path} failed`)
 }
 
 // --- Prose builders (deterministic regeneration from structured metadata) ---
@@ -94,6 +150,23 @@ export function buildEpisodeProse(episode: Episode): string {
   return sentences.join(' ')
 }
 
+function ensureMinContent(content: string, fallbackSentences: string[]): string {
+  const trimmed = content.trim()
+  if (trimmed.length >= NIA_MIN_CONTENT_CHARS) return trimmed
+
+  const extra = fallbackSentences
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+
+  const joined = [trimmed, extra].filter(Boolean).join(' ').trim()
+  if (joined.length >= NIA_MIN_CONTENT_CHARS) return joined
+
+  return `${joined} This memory entry was captured by SecondBrain and will be enriched as more interactions are recorded.`
+    .trim()
+}
+
 // --- Serialization helpers (metadata <-> Person/Episode) ---
 
 function personToMetadata(person: Person): Record<string, unknown> {
@@ -126,6 +199,35 @@ function metadataToPerson(
     notes: Array.isArray(meta.notes)
       ? (meta.notes as string[]).filter((v) => typeof v === 'string')
       : undefined,
+    prose: typeof meta.prose === 'string' ? meta.prose : undefined,
+    nia_context_id: context_id,
+  }
+}
+
+function metadataToEpisode(
+  meta: Record<string, unknown> | null | undefined,
+  context_id?: string
+): Episode | null {
+  if (!meta || typeof meta !== 'object') return null
+  const episode_id = typeof meta.episode_id === 'string' ? meta.episode_id : ''
+  if (!episode_id) return null
+
+  return {
+    episode_id,
+    person_ids: Array.isArray(meta.person_ids)
+      ? (meta.person_ids as string[]).filter((v) => typeof v === 'string')
+      : [],
+    topics: Array.isArray(meta.topics)
+      ? (meta.topics as string[]).filter((v) => typeof v === 'string')
+      : [],
+    promises: Array.isArray(meta.promises)
+      ? (meta.promises as string[]).filter((v) => typeof v === 'string')
+      : [],
+    next_actions: Array.isArray(meta.next_actions)
+      ? (meta.next_actions as string[]).filter((v) => typeof v === 'string')
+      : [],
+    timestamp: typeof meta.timestamp === 'string' ? meta.timestamp : new Date().toISOString(),
+    source: meta.source === 'screen' ? 'screen' : 'webcam',
     prose: typeof meta.prose === 'string' ? meta.prose : undefined,
     nia_context_id: context_id,
   }
@@ -166,6 +268,26 @@ export async function findPersonByPersonId(
   }
 }
 
+export async function findEpisodeByEpisodeId(
+  episode_id: string
+): Promise<{ context_id: string; episode: Episode } | null> {
+  try {
+    const results = await searchMemory(episode_id, 50)
+    const match = results.find((r) => {
+      if (!Array.isArray(r.tags) || !r.tags.includes('episode')) return false
+      const meta = r.metadata as Record<string, unknown> | null
+      if (!meta || typeof meta !== 'object') return false
+      return meta.episode_id === episode_id
+    })
+    if (!match) return null
+    const episode = metadataToEpisode(match.metadata, match.id)
+    if (!episode) return null
+    return { context_id: match.id, episode }
+  } catch {
+    return null
+  }
+}
+
 // --- Save a person profile as a "fact" context ---
 //
 // If a person with this person_id already exists in Nia, merge the new data
@@ -183,7 +305,7 @@ export async function findPersonByPersonId(
 // After merging, the content prose is regenerated deterministically via
 // buildPersonProse() so that Nia's vector index stays consistent with the
 // merged metadata.
-export async function savePersonContext(person: Person): Promise<string> {
+export async function upsertPersonContext(person: Person): Promise<NiaUpsertResult> {
   const existing = await findPersonByPersonId(person.person_id)
 
   if (existing) {
@@ -206,7 +328,15 @@ export async function savePersonContext(person: Person): Promise<string> {
       prose: person.prose || existing.person.prose,
     }
 
-    const content = buildPersonProse(merged)
+    const content = ensureMinContent(buildPersonProse(merged), [
+      `${merged.name} was met at ${merged.where_met || 'an unknown place'}.`,
+      merged.summary
+        ? `Known context: ${merged.summary}.`
+        : 'Additional context is not yet available.',
+      merged.open_loops?.length
+        ? `Open loops: ${merged.open_loops.join(', ')}.`
+        : 'No open loops recorded yet.',
+    ])
     const shortSummary = `${merged.name} — met at ${merged.where_met}. ${merged.summary}`.trim()
 
     await updateContext(existing.context_id, {
@@ -217,11 +347,19 @@ export async function savePersonContext(person: Person): Promise<string> {
       tags: ['person', merged.person_id],
     })
 
-    return existing.context_id
+    return { id: existing.context_id, action: 'updated' }
   }
 
   // No existing match — create a new context
-  const content = person.prose || buildPersonProse(person)
+  const content = ensureMinContent(person.prose || buildPersonProse(person), [
+    `${person.name} was met at ${person.where_met || 'an unknown place'}.`,
+    person.summary
+      ? `Known context: ${person.summary}.`
+      : 'Additional context is not yet available.',
+    person.open_loops?.length
+      ? `Open loops: ${person.open_loops.join(', ')}.`
+      : 'No open loops recorded yet.',
+  ])
   const shortSummary = `${person.name} — met at ${person.where_met}. ${person.summary}`.trim()
 
   const data = await niaFetch('/contexts', {
@@ -236,18 +374,41 @@ export async function savePersonContext(person: Person): Promise<string> {
       metadata: personToMetadata(person),
     }),
   })
-  return data.id
+  return { id: data.id as string, action: 'created' }
 }
 
-// --- Save an episode as an "episodic" context (no dedupe) ---
-export async function saveEpisodeContext(episode: Episode): Promise<string> {
-  const content = episode.prose || buildEpisodeProse(episode)
+export async function savePersonContext(person: Person): Promise<string> {
+  const result = await upsertPersonContext(person)
+  return result.id
+}
+
+// --- Save an episode as an "episodic" context ---
+// Uses episode_id metadata for idempotency (update existing when found).
+export async function upsertEpisodeContext(episode: Episode): Promise<NiaUpsertResult> {
+  const existing = await findEpisodeByEpisodeId(episode.episode_id)
+  const content = ensureMinContent(episode.prose || buildEpisodeProse(episode), [
+    `Episode captured on ${formatDate(episode.timestamp)} from ${episode.source}.`,
+    episode.topics.length
+      ? `Topics: ${episode.topics.join(', ')}.`
+      : 'Topics were not extracted.',
+  ])
   const topicStr = episode.topics.join(', ')
   const promiseStr =
     episode.promises.length > 0
       ? ` promises: ${episode.promises.join('; ')}`
       : ''
   const shortSummary = `episode with ${episode.person_ids.join(', ')} about ${topicStr}.${promiseStr}`
+
+  if (existing) {
+    await updateContext(existing.context_id, {
+      title: topicStr || 'untitled episode',
+      summary: shortSummary,
+      content,
+      tags: ['episode', ...episode.person_ids],
+      metadata: episodeToMetadata(episode),
+    })
+    return { id: existing.context_id, action: 'updated' }
+  }
 
   const data = await niaFetch('/contexts', {
     method: 'POST',
@@ -261,7 +422,12 @@ export async function saveEpisodeContext(episode: Episode): Promise<string> {
       metadata: episodeToMetadata(episode),
     }),
   })
-  return data.id
+  return { id: data.id as string, action: 'created' }
+}
+
+export async function saveEpisodeContext(episode: Episode): Promise<string> {
+  const result = await upsertEpisodeContext(episode)
+  return result.id
 }
 
 // --- Update an existing context ---
@@ -294,6 +460,47 @@ export async function searchMemory(
 
   const data = await niaFetch(`/contexts/semantic-search?${params}`)
   return data.results || []
+}
+
+export function filterResultsByPersonIds(
+  results: NiaSearchResult[],
+  personIds: string[]
+): NiaSearchResult[] {
+  if (personIds.length === 0) return results
+  const set = new Set(personIds)
+  return results.filter((result) => {
+    const meta = result.metadata as Record<string, unknown>
+    if (typeof meta.person_id === 'string' && set.has(meta.person_id)) return true
+    if (Array.isArray(meta.person_ids)) {
+      return meta.person_ids.some((id) => set.has(String(id)))
+    }
+    return false
+  })
+}
+
+export function bestEpisodeSummaryForPerson(
+  results: NiaSearchResult[],
+  personId: string
+): string {
+  const byRecency = (result: NiaSearchResult): string => {
+    const updated =
+      typeof result.updated_at === 'string' ? result.updated_at : ''
+    const created =
+      typeof result.created_at === 'string' ? result.created_at : ''
+    return updated || created || ''
+  }
+
+  const episode = results
+    .filter((result) => {
+      if (!Array.isArray(result.tags) || !result.tags.includes('episode')) return false
+      const meta = result.metadata as Record<string, unknown>
+      const personIds = Array.isArray(meta.person_ids)
+        ? meta.person_ids.map((value) => String(value))
+        : []
+      return personIds.includes(personId)
+    })
+    .sort((a, b) => byRecency(b).localeCompare(byRecency(a)))[0]
+  return episode?.summary || ''
 }
 
 // --- Get a single context by ID ---
