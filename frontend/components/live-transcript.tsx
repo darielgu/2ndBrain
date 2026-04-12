@@ -42,14 +42,32 @@ const SPEAKER_COLORS: Record<string, { text: string; border: string; bg: string 
   },
 }
 
+// Palette used when a speaker label isn't a known personN — e.g. after
+// the vision pipeline has remapped "person2" → "enzo garcia". Keyed by
+// a simple string hash so the same name always gets the same color
+// across renders.
+const NAMED_PALETTE: Array<{ text: string; border: string; bg: string }> = [
+  { text: 'text-[#3b82f6]', border: 'border-[#3b82f6]/40', bg: 'bg-[#3b82f6]/5' },
+  { text: 'text-[#10b981]', border: 'border-[#10b981]/40', bg: 'bg-[#10b981]/5' },
+  { text: 'text-[#f59e0b]', border: 'border-[#f59e0b]/40', bg: 'bg-[#f59e0b]/5' },
+  { text: 'text-[#8b5cf6]', border: 'border-[#8b5cf6]/40', bg: 'bg-[#8b5cf6]/5' },
+  { text: 'text-[#ef4444]', border: 'border-[#ef4444]/40', bg: 'bg-[#ef4444]/5' },
+  { text: 'text-[#ec4899]', border: 'border-[#ec4899]/40', bg: 'bg-[#ec4899]/5' },
+]
+
+function hashName(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0
+  }
+  return Math.abs(h)
+}
+
 function speakerStyle(speaker: string) {
-  return (
-    SPEAKER_COLORS[speaker] ?? {
-      text: 'text-muted-foreground',
-      border: 'border-border',
-      bg: 'bg-secondary/40',
-    }
-  )
+  const known = SPEAKER_COLORS[speaker]
+  if (known) return known
+  // Unknown label = real name remapped from vision. Hash to palette.
+  return NAMED_PALETTE[hashName(speaker) % NAMED_PALETTE.length]
 }
 
 interface FlatSegment extends TranscriptSegment {

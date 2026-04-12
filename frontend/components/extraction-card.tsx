@@ -1,6 +1,6 @@
 'use client'
 
-import { Brain, CircleDot, ListChecks, Users } from 'lucide-react'
+import { Brain, CircleDot, Eye, ListChecks, Users } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import {
   Card,
@@ -8,12 +8,14 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import type { ExtractionResult } from '@/lib/types'
+import type { ExtractionResult, VisualPerson } from '@/lib/types'
 
 export function ExtractionCard({
   extraction,
+  visualPeople = [],
 }: {
   extraction: ExtractionResult
+  visualPeople?: VisualPerson[]
 }) {
   return (
     <Card className="rounded-none border-border bg-background/40 shadow-none">
@@ -24,6 +26,40 @@ export function ExtractionCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 px-4 pb-4">
+        {/* Recognized faces — only shown when the vision pipeline found
+            at least one participant in the meet grid. */}
+        {visualPeople.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+              <Eye className="h-3 w-3" />
+              recognized faces
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {visualPeople.map((vp) => (
+                <div
+                  key={vp.name}
+                  className="flex items-center gap-2 border border-border bg-secondary/20 p-1.5"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={vp.face_image}
+                    alt={`face of ${vp.name}`}
+                    className="h-10 w-10 shrink-0 border border-border object-cover"
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-xs lowercase">{vp.name}</p>
+                    {vp.active_frame_count > 0 ? (
+                      <p className="text-[10px] lowercase text-muted-foreground">
+                        active ×{vp.active_frame_count}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* People */}
         {extraction.people.length > 0 && (
           <div className="space-y-1.5">

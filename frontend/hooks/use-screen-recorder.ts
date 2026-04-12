@@ -6,12 +6,25 @@ import type {
   TranscriptChunk,
   TranscriptSegment,
   ExtractionResult,
+  SampledFrame,
+  VisualPerson,
 } from '@/lib/types'
+import {
+  analyzeFrames,
+  buildVisualPeople,
+  remapChunkSpeakers,
+} from '@/lib/vision-client'
 
 // 30s chunks give whisper/gpt-4o-transcribe enough context to avoid
 // mid-sentence splits that were garbling transcription at 15s.
 const CHUNK_INTERVAL_MS = 30_000
 const AUDIO_BITS_PER_SECOND = 128_000
+
+// Frame sampler: one JPEG every 3s off the display video track. Used after
+// stopRecording to detect Meet participants and map audio speaker labels to
+// real names via an offline vision analysis pass.
+const FRAME_SAMPLE_INTERVAL_MS = 3_000
+const FRAME_MAX_WIDTH = 1280
 
 function getSupportedMimeType(): string {
   const types = [
@@ -56,6 +69,8 @@ export function useScreenRecorder() {
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
+  const [visualPeople, setVisualPeople] = useState<VisualPerson[]>([])
+  const [isAnalyzingVision, setIsAnalyzingVision] = useState(false)
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -77,6 +92,18 @@ export function useScreenRecorder() {
   // segment produced, so the next chunk's segmentation can reuse labels.
   const knownSpeakersRef = useRef<string[]>([])
   const lastSegmentRef = useRef<TranscriptSegment | null>(null)
+  // Parallel chunks ref so stopRecording can read the latest chunk list
+  // without a stale closure over React state.
+  const chunksRef = useRef<TranscriptChunk[]>([])
+  // Frame sampler state: we hold an offscreen <video> bound to the display
+  // stream and a setInterval that pushes JPEG blobs into framesRef every
+  // FRAME_SAMPLE_INTERVAL_MS. Processed after stopRecording.
+  const framesRef = useRef<SampledFrame[]>([])
+  const samplerVideoRef = useRef<HTMLVideoElement | null>(null)
+  const samplerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null
+  )
+  const recordingStartTsRef = useRef<number>(0)
 
   const cleanup = useCallback(() => {
     if (timerRef.current) {
@@ -86,6 +113,17 @@ export function useScreenRecorder() {
     if (chunkTimeoutRef.current) {
       clearTimeout(chunkTimeoutRef.current)
       chunkTimeoutRef.current = null
+    }
+    if (samplerIntervalRef.current) {
+      clearInterval(samplerIntervalRef.current)
+      samplerIntervalRef.current = null
+    }
+    if (samplerVideoRef.current) {
+      try {
+        samplerVideoRef.current.pause()
+        samplerVideoRef.current.srcObject = null
+      } catch {}
+      samplerVideoRef.current = null
     }
     if (mediaRecorderRef.current?.state !== 'inactive') {
       try {
@@ -107,6 +145,43 @@ export function useScreenRecorder() {
       audioContextRef.current = null
     }
     setStream(null)
+  }, [])
+
+  // Pull one frame off the offscreen sampler video and push a JPEG blob
+  // into framesRef. Downscaled to FRAME_MAX_WIDTH to keep memory + vision
+  // token cost bounded. Silently skips if the video isn't ready yet.
+  const captureFrame = useCallback(() => {
+    const video = samplerVideoRef.current
+    if (!video) return
+    const sourceW = video.videoWidth
+    const sourceH = video.videoHeight
+    if (sourceW === 0 || sourceH === 0) return
+    const scale = Math.min(1, FRAME_MAX_WIDTH / sourceW)
+    const w = Math.max(1, Math.round(sourceW * scale))
+    const h = Math.max(1, Math.round(sourceH * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    try {
+      ctx.drawImage(video, 0, 0, w, h)
+    } catch {
+      return
+    }
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return
+        framesRef.current.push({
+          t_ms: Date.now() - recordingStartTsRef.current,
+          blob,
+          width: w,
+          height: h,
+        })
+      },
+      'image/jpeg',
+      0.72
+    )
   }, [])
 
   const transcribeChunk = useCallback(async (blob: Blob, index: number) => {
@@ -163,15 +238,14 @@ export function useScreenRecorder() {
         }
         lastSegmentRef.current = cleanSegments[cleanSegments.length - 1]
 
-        setChunks((prev) => [
-          ...prev,
-          {
-            text,
-            timestamp: Date.now(),
-            chunk_index: index,
-            segments: cleanSegments,
-          },
-        ])
+        const newChunk: TranscriptChunk = {
+          text,
+          timestamp: Date.now(),
+          chunk_index: index,
+          segments: cleanSegments,
+        }
+        chunksRef.current = [...chunksRef.current, newChunk]
+        setChunks((prev) => [...prev, newChunk])
       }
     } catch (err) {
       console.error(`chunk ${index} transcription failed:`, err)
@@ -239,10 +313,15 @@ export function useScreenRecorder() {
     setCurrentTranscript('')
     setExtraction(null)
     setElapsed(0)
+    setVisualPeople([])
+    setIsAnalyzingVision(false)
     transcriptRef.current = ''
     chunkIndexRef.current = 0
     knownSpeakersRef.current = []
     lastSegmentRef.current = null
+    chunksRef.current = []
+    framesRef.current = []
+    recordingStartTsRef.current = Date.now()
 
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
@@ -252,6 +331,26 @@ export function useScreenRecorder() {
 
       streamRef.current = displayStream
       setStream(displayStream)
+
+      // Bind an offscreen <video> to the display stream so we can pull
+      // frames via canvas.drawImage. Muted + playsInline so autoplay is
+      // allowed even though we never attach it to the DOM.
+      try {
+        const samplerVideo = document.createElement('video')
+        samplerVideo.muted = true
+        samplerVideo.playsInline = true
+        samplerVideo.srcObject = displayStream
+        await samplerVideo.play().catch(() => {})
+        samplerVideoRef.current = samplerVideo
+        samplerIntervalRef.current = setInterval(
+          captureFrame,
+          FRAME_SAMPLE_INTERVAL_MS
+        )
+      } catch (err) {
+        // Sampler failure shouldn't kill the recording — audio path is
+        // still the primary memory surface.
+        console.error('frame sampler init failed:', err)
+      }
 
       // Listen for user stopping the share via browser UI
       displayStream.getVideoTracks()[0]?.addEventListener('ended', () => {
@@ -326,7 +425,7 @@ export function useScreenRecorder() {
       setError('screen share cancelled or denied.')
       cleanup()
     }
-  }, [cleanup, startChunkCycle])
+  }, [cleanup, startChunkCycle, captureFrame])
 
   const stopRecording = useCallback(async () => {
     // Flip the flag FIRST so the in-flight recorder's onstop doesn't
@@ -347,6 +446,12 @@ export function useScreenRecorder() {
       } catch {}
     }
 
+    // Snapshot the sampled frames BEFORE cleanup so vision analysis can
+    // still consume them after the stream is torn down. Clearing the ref
+    // here also means a subsequent recording starts fresh.
+    const capturedFrames = framesRef.current
+    framesRef.current = []
+
     cleanup()
     setStatus('processing')
 
@@ -358,6 +463,44 @@ export function useScreenRecorder() {
     if (!fullTranscript.trim()) {
       setStatus('idle')
       return null
+    }
+
+    // --- Vision pipeline: detect meet participants, remap speakers ---
+    // Runs before extraction so the extraction pass sees real names in
+    // context (the transcript text itself is unchanged — only the
+    // segment speaker labels — so no content is fabricated).
+    let visualPeopleResult: VisualPerson[] = []
+    if (capturedFrames.length > 0) {
+      setIsAnalyzingVision(true)
+      try {
+        const analyses = await analyzeFrames(capturedFrames)
+        visualPeopleResult = await buildVisualPeople(
+          capturedFrames,
+          analyses
+        )
+        setVisualPeople(visualPeopleResult)
+
+        // Rewrite speaker labels in place using the latest chunks ref,
+        // which stays in sync with the chunks state during transcription.
+        const { newChunks } = remapChunkSpeakers(
+          chunksRef.current,
+          analyses,
+          CHUNK_INTERVAL_MS
+        )
+        chunksRef.current = newChunks
+        setChunks(newChunks)
+      } catch (err) {
+        console.error('vision pipeline failed:', err)
+      } finally {
+        setIsAnalyzingVision(false)
+      }
+    }
+
+    // Build a name → face_image lookup so person saves can attach faces
+    // for the matching extracted people. normalize for comparison.
+    const faceByName = new Map<string, string>()
+    for (const vp of visualPeopleResult) {
+      faceByName.set(vp.name.trim().toLowerCase(), vp.face_image)
     }
 
     try {
@@ -392,8 +535,13 @@ export function useScreenRecorder() {
         body: JSON.stringify({ type: 'episode', data: episode }),
       }).catch((err) => console.error('failed to save episode:', err))
 
-      // Save each person to Nia (dedupe handled server-side in savePersonContext)
+      // Save each extracted person. Attach face_image from vision when
+      // the normalized name matches a detected Meet participant.
+      const extractedNameSet = new Set<string>()
       for (const person of extractionResult.people) {
+        const normalized = person.name.trim().toLowerCase()
+        extractedNameSet.add(normalized)
+        const face_image = faceByName.get(normalized)
         const personData = {
           person_id: person.name.toLowerCase().replace(/\s+/g, '_'),
           name: person.name.toLowerCase(),
@@ -406,6 +554,7 @@ export function useScreenRecorder() {
           // and the content is regenerated from the merged history.
           notes: person.prose_summary ? [person.prose_summary] : [],
           prose: person.prose_summary,
+          face_image,
         }
 
         await fetch('/api/memory', {
@@ -413,6 +562,33 @@ export function useScreenRecorder() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'person', data: personData }),
         }).catch((err) => console.error('failed to save person:', err))
+      }
+
+      // Passive enrollment: for every visual person not named in the
+      // extraction, write a minimal Person record so their face thumbnail
+      // is still captured for next time. They might have been silent,
+      // a new coworker who wasn't called by name, etc.
+      for (const vp of visualPeopleResult) {
+        const normalized = vp.name.trim().toLowerCase()
+        if (extractedNameSet.has(normalized)) continue
+        const personData = {
+          person_id: normalized.replace(/\s+/g, '_'),
+          name: normalized,
+          where_met: 'google meet',
+          summary: 'seen on a meet call (passive enrollment)',
+          open_loops: [],
+          last_seen: now,
+          notes: [],
+          prose: `${vp.name} appeared on a google meet call on ${new Date(now).toLocaleDateString()}. captured passively from the participant grid.`,
+          face_image: vp.face_image,
+        }
+        await fetch('/api/memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'person', data: personData }),
+        }).catch((err) =>
+          console.error('failed to save passive-enrolled person:', err)
+        )
       }
 
       setStatus('idle')
@@ -434,6 +610,8 @@ export function useScreenRecorder() {
     error,
     stream,
     isTranscribing,
+    visualPeople,
+    isAnalyzingVision,
     startRecording,
     stopRecording,
   }
