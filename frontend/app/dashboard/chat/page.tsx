@@ -1,9 +1,9 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, MessageSquare, UserPlus, Users } from 'lucide-react'
 import { PromptInputBox } from '@/components/ui/ai-prompt-box'
-import { people } from '@/lib/dashboard-data'
+import type { Person } from '@/lib/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
@@ -14,12 +14,28 @@ type ChatMessage = {
 }
 
 export default function ChatPage() {
+  const [people, setPeople] = useState<Person[]>([])
   const [selectedPeopleIds, setSelectedPeopleIds] = useState<string[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
 
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/memory?type=person')
+      .then((r) => r.json())
+      .then((data: { people?: Person[] }) => {
+        if (cancelled) return
+        setPeople(Array.isArray(data.people) ? data.people : [])
+      })
+      .catch((err) => console.error('failed to load people:', err))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const selectedPeople = useMemo(
-    () => people.filter((person) => selectedPeopleIds.includes(person.id)),
-    [selectedPeopleIds],
+    () =>
+      people.filter((person) => selectedPeopleIds.includes(person.person_id)),
+    [people, selectedPeopleIds],
   )
 
   const togglePerson = (personId: string) => {
@@ -74,28 +90,42 @@ export default function ChatPage() {
               add indexed people
             </div>
             <div className="space-y-1">
-              {people.map((person) => {
-                const isSelected = selectedPeopleIds.includes(person.id)
+              {people.length === 0 ? (
+                <p className="px-2 py-2 text-[11px] lowercase text-muted-foreground">
+                  no people indexed yet. record a session first.
+                </p>
+              ) : (
+                people.map((person) => {
+                  const isSelected = selectedPeopleIds.includes(
+                    person.person_id,
+                  )
+                  const openLoop =
+                    person.open_loops.length > 0
+                      ? person.open_loops[0]
+                      : 'none'
 
-                return (
-                  <button
-                    key={person.id}
-                    type="button"
-                    onClick={() => togglePerson(person.id)}
-                    className="flex w-full items-start justify-between rounded-sm border border-transparent px-2 py-2 text-left transition-all duration-150 hover:border-border hover:bg-secondary/40"
-                  >
-                    <div>
-                      <p className="text-xs lowercase text-foreground">{person.name}</p>
-                      <p className="text-[11px] lowercase text-muted-foreground">
-                        {person.whereMet} • open loop: {person.openLoop}
-                      </p>
-                    </div>
-                    <span className="mt-0.5 h-4 w-4 text-foreground">
-                      {isSelected && <Check className="h-4 w-4" />}
-                    </span>
-                  </button>
-                )
-              })}
+                  return (
+                    <button
+                      key={person.person_id}
+                      type="button"
+                      onClick={() => togglePerson(person.person_id)}
+                      className="flex w-full items-start justify-between rounded-sm border border-transparent px-2 py-2 text-left transition-all duration-150 hover:border-border hover:bg-secondary/40"
+                    >
+                      <div>
+                        <p className="text-xs lowercase text-foreground">
+                          {person.name}
+                        </p>
+                        <p className="text-[11px] lowercase text-muted-foreground">
+                          {person.where_met || 'unknown'} • open loop: {openLoop}
+                        </p>
+                      </div>
+                      <span className="mt-0.5 h-4 w-4 text-foreground">
+                        {isSelected && <Check className="h-4 w-4" />}
+                      </span>
+                    </button>
+                  )
+                })
+              )}
             </div>
           </PopoverContent>
         </Popover>

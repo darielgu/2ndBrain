@@ -131,29 +131,99 @@ function metadataToPerson(
   }
 }
 
+function metadataToEpisode(
+  meta: Record<string, unknown> | null | undefined,
+  context_id?: string
+): Episode | null {
+  if (!meta || typeof meta !== 'object') return null
+  const episode_id = typeof meta.episode_id === 'string' ? meta.episode_id : ''
+  if (!episode_id) return null
+  const rawSource = typeof meta.source === 'string' ? meta.source : 'screen'
+  const source: Episode['source'] =
+    rawSource === 'webcam' ? 'webcam' : 'screen'
+  return {
+    episode_id,
+    person_ids: Array.isArray(meta.person_ids)
+      ? (meta.person_ids as unknown[]).filter(
+          (v): v is string => typeof v === 'string'
+        )
+      : [],
+    topics: Array.isArray(meta.topics)
+      ? (meta.topics as unknown[]).filter(
+          (v): v is string => typeof v === 'string'
+        )
+      : [],
+    promises: Array.isArray(meta.promises)
+      ? (meta.promises as unknown[]).filter(
+          (v): v is string => typeof v === 'string'
+        )
+      : [],
+    next_actions: Array.isArray(meta.next_actions)
+      ? (meta.next_actions as unknown[]).filter(
+          (v): v is string => typeof v === 'string'
+        )
+      : [],
+    timestamp: typeof meta.timestamp === 'string' ? meta.timestamp : '',
+    source,
+    prose: typeof meta.prose === 'string' ? meta.prose : undefined,
+    nia_context_id: context_id,
+  }
+}
+
+// --- Length guards ---
+// Nia's save endpoint enforces: title 1-200, summary 10-1000, content ≥50.
+// For edge cases (empty prose, minimal metadata) we append structured
+// context until the minimum is met so the request doesn't 422.
+function ensureMinLength(base: string, min: number, filler: string): string {
+  const trimmed = base.trim()
+  if (trimmed.length >= min) return trimmed
+  const combined = trimmed ? `${trimmed} ${filler}` : filler
+  if (combined.length >= min) return combined
+  // Pathological case — pad with the filler repeated. Deterministic.
+  let result = combined
+  while (result.length < min) result += ` ${filler}`
+  return result
+}
+
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : s.slice(0, max)
+}
+
 // --- Dedupe lookup: find an existing person context by exact person_id ---
 
 export async function findPersonByPersonId(
   person_id: string
 ): Promise<{ context_id: string; person: Person } | null> {
-  // Semantic search by name (derived from person_id) casts a wide net.
-  // We then filter results in code for exact metadata.person_id equality.
-  //
-  // NOTE: We do NOT filter by `memory_type === 'fact'` here. Nia's
-  // semantic-search endpoint returns `memory_type: "episodic"` for ALL
-  // results regardless of how they were actually saved (verified against
-  // the GET /contexts/{id} endpoint, which returns the real value). We
-  // instead rely on tags + the presence of `metadata.person_id` + the
-  // absence of `metadata.episode_id` to identify person records.
-  const nameQuery = person_id.replace(/_/g, ' ')
-
+  // Tag-based list is deterministic: ['person', person_id] narrows to at
+  // most one context. Falls back to semantic search if the list returns
+  // nothing — covers records created before the per-id tag convention.
   try {
+    const viaList = await listContexts({
+      tags: ['person', person_id],
+      agent_source: 'secondbrain',
+      limit: 5,
+    })
+    const listMatch = viaList.find((r) => {
+      const meta = r.metadata as Record<string, unknown> | null
+      if (!meta || typeof meta !== 'object') return false
+      if (typeof meta.episode_id === 'string') return false
+      return meta.person_id === person_id
+    })
+    if (listMatch) {
+      const person = metadataToPerson(
+        listMatch.metadata as Record<string, unknown>,
+        listMatch.id as string
+      )
+      if (person) return { context_id: listMatch.id as string, person }
+    }
+
+    // Fallback: semantic search then filter. Wider net, less reliable.
+    const nameQuery = person_id.replace(/_/g, ' ')
     const results = await searchMemory(nameQuery, 50)
     const match = results.find((r) => {
       if (!Array.isArray(r.tags) || !r.tags.includes('person')) return false
       const meta = r.metadata as Record<string, unknown> | null
       if (!meta || typeof meta !== 'object') return false
-      // Person records have person_id but no episode_id
       if (typeof meta.episode_id === 'string') return false
       return meta.person_id === person_id
     })
@@ -206,12 +276,17 @@ export async function savePersonContext(person: Person): Promise<string> {
       prose: person.prose || existing.person.prose,
     }
 
-    const content = buildPersonProse(merged)
-    const shortSummary = `${merged.name} — met at ${merged.where_met}. ${merged.summary}`.trim()
+    const rawContent = buildPersonProse(merged)
+    const rawSummary = `${merged.name} — met at ${merged.where_met}. ${merged.summary}`.trim()
+    const { title, summary, content } = buildPersonFields(
+      merged,
+      rawSummary,
+      rawContent
+    )
 
     await updateContext(existing.context_id, {
-      title: merged.name,
-      summary: shortSummary,
+      title,
+      summary,
       content,
       metadata: personToMetadata(merged),
       tags: ['person', merged.person_id],
@@ -221,14 +296,19 @@ export async function savePersonContext(person: Person): Promise<string> {
   }
 
   // No existing match — create a new context
-  const content = person.prose || buildPersonProse(person)
-  const shortSummary = `${person.name} — met at ${person.where_met}. ${person.summary}`.trim()
+  const rawContent = person.prose || buildPersonProse(person)
+  const rawSummary = `${person.name} — met at ${person.where_met}. ${person.summary}`.trim()
+  const { title, summary, content } = buildPersonFields(
+    person,
+    rawSummary,
+    rawContent
+  )
 
   const data = await niaFetch('/contexts', {
     method: 'POST',
     body: JSON.stringify({
-      title: person.name,
-      summary: shortSummary,
+      title,
+      summary,
       content,
       agent_source: 'secondbrain',
       memory_type: 'fact',
@@ -239,21 +319,43 @@ export async function savePersonContext(person: Person): Promise<string> {
   return data.id
 }
 
+function buildPersonFields(
+  person: Person,
+  rawSummary: string,
+  rawContent: string
+): { title: string; summary: string; content: string } {
+  const title = truncate(person.name || person.person_id || 'untitled', 200)
+
+  const summaryFiller = `Profile of ${person.name || person.person_id}, first encountered at ${person.where_met || 'an unknown location'}.`
+  const summary = truncate(ensureMinLength(rawSummary, 10, summaryFiller), 1000)
+
+  const contentFiller = `Person profile for ${person.name || person.person_id} (id: ${person.person_id}). First encountered at ${person.where_met || 'an unknown location'}. ${person.summary ? `Summary: ${person.summary}.` : ''} ${person.open_loops.length > 0 ? `Open loops: ${person.open_loops.join('; ')}.` : 'No open loops recorded yet.'}`
+  const content = ensureMinLength(rawContent, 50, contentFiller)
+
+  return { title, summary, content }
+}
+
 // --- Save an episode as an "episodic" context (no dedupe) ---
 export async function saveEpisodeContext(episode: Episode): Promise<string> {
-  const content = episode.prose || buildEpisodeProse(episode)
+  const rawContent = episode.prose || buildEpisodeProse(episode)
   const topicStr = episode.topics.join(', ')
   const promiseStr =
     episode.promises.length > 0
       ? ` promises: ${episode.promises.join('; ')}`
       : ''
-  const shortSummary = `episode with ${episode.person_ids.join(', ')} about ${topicStr}.${promiseStr}`
+  const rawSummary = `episode with ${episode.person_ids.join(', ') || 'unknown participants'} about ${topicStr || 'general conversation'}.${promiseStr}`
+
+  const title = truncate(topicStr || 'untitled episode', 200)
+  const summaryFiller = `Recorded ${episode.source} session on ${episode.timestamp || 'unknown date'}.`
+  const summary = truncate(ensureMinLength(rawSummary, 10, summaryFiller), 1000)
+  const contentFiller = `Episode ${episode.episode_id} captured via ${episode.source}. Participants: ${episode.person_ids.join(', ') || 'unknown'}. Topics: ${topicStr || 'not identified'}. Promises: ${episode.promises.join('; ') || 'none'}. Next actions: ${episode.next_actions.join('; ') || 'none'}.`
+  const content = ensureMinLength(rawContent, 50, contentFiller)
 
   const data = await niaFetch('/contexts', {
     method: 'POST',
     body: JSON.stringify({
-      title: topicStr || 'untitled episode',
-      summary: shortSummary,
+      title,
+      summary,
       content,
       agent_source: 'secondbrain',
       memory_type: 'episodic',
@@ -294,6 +396,75 @@ export async function searchMemory(
 
   const data = await niaFetch(`/contexts/semantic-search?${params}`)
   return data.results || []
+}
+
+// --- List contexts with server-side filters ---
+// GET /contexts?tags=&agent_source=&memory_type=&limit=&offset=
+// Deterministic alternative to semantic search for listing by tag/type.
+export async function listContexts(params: {
+  tags?: string[]
+  agent_source?: string
+  memory_type?: 'scratchpad' | 'episodic' | 'fact' | 'procedural'
+  limit?: number
+  offset?: number
+}): Promise<NiaSearchResult[]> {
+  const query = new URLSearchParams()
+  if (params.tags && params.tags.length > 0) {
+    query.set('tags', params.tags.join(','))
+  }
+  if (params.agent_source) query.set('agent_source', params.agent_source)
+  if (params.memory_type) query.set('memory_type', params.memory_type)
+  query.set('limit', String(Math.min(params.limit ?? 100, 100)))
+  query.set('offset', String(params.offset ?? 0))
+
+  const data = await niaFetch(`/contexts?${query}`)
+  // Spec returns both `items` (new) and `contexts` (legacy) — prefer items.
+  const items: unknown = data.items || data.contexts || []
+  if (!Array.isArray(items)) return []
+  return items as NiaSearchResult[]
+}
+
+// --- List all people stored by secondbrain ---
+// Filters by tags + agent_source only. We intentionally don't pass
+// memory_type because Nia's search stack has historically returned
+// unreliable values for that field; the tags + metadata shape is
+// deterministic and sufficient.
+export async function listPeople(limit = 100): Promise<Person[]> {
+  const results = await listContexts({
+    tags: ['person'],
+    agent_source: 'secondbrain',
+    limit,
+  })
+
+  return results
+    .map((r) => {
+      const meta = r.metadata as Record<string, unknown> | null | undefined
+      if (!meta || typeof meta.episode_id === 'string') return null
+      return metadataToPerson(meta, typeof r.id === 'string' ? r.id : undefined)
+    })
+    .filter((p): p is Person => p !== null)
+    .sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''))
+}
+
+// --- List all episodes stored by secondbrain ---
+export async function listEpisodes(limit = 100): Promise<Episode[]> {
+  const results = await listContexts({
+    tags: ['episode'],
+    agent_source: 'secondbrain',
+    limit,
+  })
+
+  return results
+    .map((r) => {
+      const meta = r.metadata as Record<string, unknown> | null | undefined
+      if (!meta || typeof meta.episode_id !== 'string') return null
+      return metadataToEpisode(
+        meta,
+        typeof r.id === 'string' ? r.id : undefined
+      )
+    })
+    .filter((e): e is Episode => e !== null)
+    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
 }
 
 // --- Get a single context by ID ---
