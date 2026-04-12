@@ -20,6 +20,14 @@ export interface Person {
    */
   prose?: string
   nia_context_id?: string
+  // --- manual enrichment fields (user-entered contact + social links) ---
+  email?: string
+  job_title?: string
+  company?: string
+  linkedin_url?: string
+  instagram?: string
+  twitter?: string // X / twitter handle or url
+  manual_notes?: string
 }
 
 export interface Episode {

@@ -1,8 +1,23 @@
 'use client'
 
 import { useState } from 'react'
-import { Sparkles, ExternalLink, Loader2 } from 'lucide-react'
+import {
+  Sparkles,
+  ExternalLink,
+  Loader2,
+  Pencil,
+  Mail,
+  Briefcase,
+  Building2,
+  Linkedin,
+  Instagram,
+  Twitter,
+  StickyNote,
+  Save,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import type { Person } from '@/lib/types'
 
 interface EnrichmentResult {
@@ -39,9 +54,12 @@ function formatLastSeen(iso: string): string {
   }
 }
 
-export function PeopleGrid({ people }: { people: Person[] }) {
+export function PeopleGrid({ people: initialPeople }: { people: Person[] }) {
+  const [people, setPeople] = useState<Person[]>(initialPeople)
   const [enrichments, setEnrichments] = useState<Record<string, EnrichmentResult>>({})
   const [busy, setBusy] = useState<string | null>(null)
+  const [manualOpen, setManualOpen] = useState<string | null>(null)
+  const [manualBusy, setManualBusy] = useState<string | null>(null)
 
   const handleEnrich = async (person: Person) => {
     setBusy(person.person_id)
@@ -114,7 +132,40 @@ export function PeopleGrid({ people }: { people: Person[] }) {
               </p>
             ) : null}
 
-            <div className="mt-1">
+            {(person.job_title || person.company || person.email ||
+              person.linkedin_url || person.instagram || person.twitter ||
+              person.manual_notes) && (
+              <div className="space-y-0.5 border-t border-border pt-1 text-[11px] lowercase text-muted-foreground">
+                {(person.job_title || person.company) && (
+                  <p className="flex items-center gap-1">
+                    <Briefcase className="h-3 w-3" />
+                    {[person.job_title, person.company].filter(Boolean).join(' at ')}
+                  </p>
+                )}
+                {person.email && (
+                  <p className="flex items-center gap-1">
+                    <Mail className="h-3 w-3" />
+                    {person.email}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  {person.linkedin_url && (
+                    <SocialPill href={person.linkedin_url} icon={Linkedin} label="linkedin" />
+                  )}
+                  {person.twitter && (
+                    <SocialPill href={toTwitterUrl(person.twitter)} icon={Twitter} label="x" />
+                  )}
+                  {person.instagram && (
+                    <SocialPill href={toInstagramUrl(person.instagram)} icon={Instagram} label="ig" />
+                  )}
+                </div>
+                {person.manual_notes && (
+                  <p className="pt-0.5 italic">{person.manual_notes}</p>
+                )}
+              </div>
+            )}
+
+            <div className="mt-1 flex flex-wrap gap-1">
               <Button
                 type="button"
                 size="sm"
@@ -131,11 +182,55 @@ export function PeopleGrid({ people }: { people: Person[] }) {
                 ) : (
                   <>
                     <Sparkles className="mr-1 h-3.5 w-3.5" />
-                    {enrichment ? 're-enrich' : 'enrich'}
+                    {enrichment ? 're-enrich' : 'auto-enrich'}
                   </>
                 )}
               </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-none lowercase"
+                onClick={() =>
+                  setManualOpen((prev) =>
+                    prev === person.person_id ? null : person.person_id,
+                  )
+                }
+              >
+                <Pencil className="mr-1 h-3.5 w-3.5" />
+                {manualOpen === person.person_id ? 'cancel' : 'manual'}
+              </Button>
             </div>
+
+            {manualOpen === person.person_id && (
+              <ManualForm
+                person={person}
+                busy={manualBusy === person.person_id}
+                onSubmit={async (fields) => {
+                  setManualBusy(person.person_id)
+                  try {
+                    const res = await fetch('/api/people/manual', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        person_id: person.person_id,
+                        name: person.name,
+                        ...fields,
+                      }),
+                    })
+                    const data = (await res.json()) as { person?: Person; error?: string }
+                    if (data.person) {
+                      setPeople((prev) =>
+                        prev.map((p) => (p.person_id === data.person!.person_id ? data.person! : p)),
+                      )
+                      setManualOpen(null)
+                    }
+                  } finally {
+                    setManualBusy(null)
+                  }
+                }}
+              />
+            )}
 
             {enrichment && !enrichment.error && (
               <div className="mt-2 space-y-2 border-t border-border pt-2 text-[11px] lowercase">
@@ -233,6 +328,155 @@ export function PeopleGrid({ people }: { people: Person[] }) {
       })}
     </div>
   )
+}
+
+interface ManualFormFields {
+  email: string
+  jobTitle: string
+  company: string
+  linkedinUrl: string
+  instagram: string
+  twitter: string
+  notes: string
+}
+
+function ManualForm({
+  person,
+  busy,
+  onSubmit,
+}: {
+  person: Person
+  busy: boolean
+  onSubmit: (fields: ManualFormFields) => Promise<void>
+}) {
+  const [fields, setFields] = useState<ManualFormFields>({
+    email: person.email || '',
+    jobTitle: person.job_title || '',
+    company: person.company || '',
+    linkedinUrl: person.linkedin_url || '',
+    instagram: person.instagram || '',
+    twitter: person.twitter || '',
+    notes: person.manual_notes || '',
+  })
+
+  const update = (key: keyof ManualFormFields, value: string) =>
+    setFields((prev) => ({ ...prev, [key]: value }))
+
+  return (
+    <form
+      className="mt-2 space-y-2 border-t border-border pt-2 text-[11px] lowercase"
+      onSubmit={async (e) => {
+        e.preventDefault()
+        await onSubmit(fields)
+      }}
+    >
+      <p className="tracking-widest text-muted-foreground">manual enrich</p>
+      <FormRow label="job title" icon={Briefcase} value={fields.jobTitle}
+        onChange={(v) => update('jobTitle', v)} placeholder="founder, engineer…" />
+      <FormRow label="company" icon={Building2} value={fields.company}
+        onChange={(v) => update('company', v)} placeholder="acme inc." />
+      <FormRow label="email" icon={Mail} value={fields.email}
+        onChange={(v) => update('email', v)} placeholder="name@domain.com" type="email" />
+      <FormRow label="linkedin" icon={Linkedin} value={fields.linkedinUrl}
+        onChange={(v) => update('linkedinUrl', v)} placeholder="linkedin.com/in/…" />
+      <FormRow label="x / twitter" icon={Twitter} value={fields.twitter}
+        onChange={(v) => update('twitter', v)} placeholder="@handle or url" />
+      <FormRow label="instagram" icon={Instagram} value={fields.instagram}
+        onChange={(v) => update('instagram', v)} placeholder="@handle or url" />
+      <div className="space-y-1">
+        <Label className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+          <StickyNote className="h-3 w-3" />
+          notes
+        </Label>
+        <textarea
+          value={fields.notes}
+          onChange={(e) => update('notes', e.target.value)}
+          rows={2}
+          placeholder="anything the auto-enrich can't know."
+          className="w-full resize-none rounded-none border border-border bg-background/40 p-2 text-[11px] lowercase text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:border-foreground/40"
+        />
+      </div>
+      <Button type="submit" size="sm" className="rounded-none lowercase" disabled={busy}>
+        {busy ? (
+          <>
+            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            saving…
+          </>
+        ) : (
+          <>
+            <Save className="mr-1 h-3.5 w-3.5" />
+            save
+          </>
+        )}
+      </Button>
+    </form>
+  )
+}
+
+function FormRow({
+  label,
+  icon: Icon,
+  value,
+  onChange,
+  placeholder,
+  type = 'text',
+}: {
+  label: string
+  icon: typeof Mail
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  type?: string
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+        <Icon className="h-3 w-3" />
+        {label}
+      </Label>
+      <Input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="h-8 rounded-none border-border bg-background/40 text-[11px] lowercase"
+      />
+    </div>
+  )
+}
+
+function SocialPill({
+  href,
+  icon: Icon,
+  label,
+}: {
+  href: string
+  icon: typeof Mail
+  label: string
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 border border-border bg-background/60 px-1.5 py-0.5 text-[10px] text-foreground/80 hover:border-foreground/40 hover:text-foreground"
+    >
+      <Icon className="h-2.5 w-2.5" />
+      {label}
+    </a>
+  )
+}
+
+function toTwitterUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/^@/, '')
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  return `https://x.com/${trimmed}`
+}
+
+function toInstagramUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/^@/, '')
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  return `https://instagram.com/${trimmed}`
 }
 
 function ConfidencePill({ confidence }: { confidence: 'high' | 'medium' | 'low' }) {
