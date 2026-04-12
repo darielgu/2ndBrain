@@ -13,6 +13,7 @@ import {
 import { LiveTranscript } from '@/components/live-transcript'
 import { ExtractionCard } from '@/components/extraction-card'
 import { ActionProposals } from '@/components/action-proposals'
+import { ProfileSyncCard } from '@/components/profile-sync-card'
 import { SessionEnding } from '@/components/session-ending'
 import { useRecording } from '@/components/recording-provider'
 import { canCaptureSystemAudio } from '@/hooks/use-screen-recorder'
@@ -222,6 +223,7 @@ export function SessionPanel({
               extraction={recorder.extraction}
               visualPeople={recorder.visualPeople}
             />
+            <ProfileSyncCard extraction={recorder.extraction} />
             <ActionProposals extraction={recorder.extraction} />
             {recorder.chunks.length > 0 && (
               <LiveTranscript
