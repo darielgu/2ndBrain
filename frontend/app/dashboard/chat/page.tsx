@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, MessageSquare, UserPlus, Users } from 'lucide-react'
 import { PromptInputBox } from '@/components/ui/ai-prompt-box'
+import type { Person } from '@/lib/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
@@ -10,45 +11,33 @@ type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   text: string
-}
-
-type DashboardPerson = {
-  person_id: string
-  name: string
-  where_met: string
-  open_loops: string[]
+  pending?: boolean
 }
 
 export default function ChatPage() {
+  const [people, setPeople] = useState<Person[]>([])
   const [selectedPeopleIds, setSelectedPeopleIds] = useState<string[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [people, setPeople] = useState<DashboardPerson[]>([])
-  const [loadingPeople, setLoadingPeople] = useState(true)
+  const [isSending, setIsSending] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/recognition/dashboard')
-      .then(async (res) => {
-        const json = (await res.json()) as { profiles?: DashboardPerson[] }
-        if (!cancelled) {
-          setPeople(Array.isArray(json.profiles) ? json.profiles : [])
-        }
+    fetch('/api/memory?type=person')
+      .then((r) => r.json())
+      .then((data: { people?: Person[] }) => {
+        if (cancelled) return
+        setPeople(Array.isArray(data.people) ? data.people : [])
       })
-      .catch((err) => {
-        console.error('failed to load dashboard people:', err)
-        if (!cancelled) setPeople([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingPeople(false)
-      })
+      .catch((err) => console.error('failed to load people:', err))
     return () => {
       cancelled = true
     }
   }, [])
 
   const selectedPeople = useMemo(
-    () => people.filter((person) => selectedPeopleIds.includes(person.person_id)),
-    [selectedPeopleIds, people],
+    () =>
+      people.filter((person) => selectedPeopleIds.includes(person.person_id)),
+    [people, selectedPeopleIds],
   )
 
   const togglePerson = (personId: string) => {
@@ -59,20 +48,59 @@ export default function ChatPage() {
     )
   }
 
-  const handleSend = (message: string) => {
+  const handleSend = async (message: string) => {
     const trimmedMessage = message.trim()
-    if (!trimmedMessage) return
+    if (!trimmedMessage || isSending) return
 
-    const selectedNames = selectedPeople.map((person) => person.name).join(', ')
-    const assistantText = selectedNames
-      ? `context attached for ${selectedNames}. what do you want to recall first?`
-      : 'memory context queued. what should i pull up?'
+    const userMsg: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      text: trimmedMessage,
+    }
+    const pendingId = `assistant-${Date.now() + 1}`
+    const pendingMsg: ChatMessage = {
+      id: pendingId,
+      role: 'assistant',
+      text: 'searching memory…',
+      pending: true,
+    }
 
-    setMessages((prev) => [
-      ...prev,
-      { id: `user-${Date.now()}`, role: 'user', text: trimmedMessage },
-      { id: `assistant-${Date.now() + 1}`, role: 'assistant', text: assistantText },
-    ])
+    const nextMessages = [...messages, userMsg]
+    setMessages([...nextMessages, pendingMsg])
+    setIsSending(true)
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: nextMessages.map((m) => ({ role: m.role, text: m.text })),
+          personIds: selectedPeopleIds,
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+      const reply =
+        typeof data?.reply === 'string' && data.reply.length > 0
+          ? data.reply
+          : 'could not reach memory. try again.'
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === pendingId ? { ...m, text: reply, pending: false } : m,
+        ),
+      )
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === pendingId
+            ? { ...m, text: 'memory lookup failed.', pending: false }
+            : m,
+        ),
+      )
+    } finally {
+      setIsSending(false)
+    }
   }
 
   const promptBox = (
@@ -102,16 +130,20 @@ export default function ChatPage() {
               <Users className="h-3.5 w-3.5" />
               add indexed people
             </div>
-            {loadingPeople ? (
-              <p className="px-2 py-2 text-xs lowercase text-muted-foreground">loading people...</p>
-            ) : people.length === 0 ? (
-              <p className="px-2 py-2 text-xs lowercase text-muted-foreground">
-                no indexed people yet. start a session first.
-              </p>
-            ) : (
-              <div className="space-y-1">
-                {people.map((person) => {
-                  const isSelected = selectedPeopleIds.includes(person.person_id)
+            <div className="space-y-1">
+              {people.length === 0 ? (
+                <p className="px-2 py-2 text-[11px] lowercase text-muted-foreground">
+                  no people indexed yet. record a session first.
+                </p>
+              ) : (
+                people.map((person) => {
+                  const isSelected = selectedPeopleIds.includes(
+                    person.person_id,
+                  )
+                  const openLoop =
+                    person.open_loops.length > 0
+                      ? person.open_loops[0]
+                      : 'none'
 
                   return (
                     <button
@@ -121,9 +153,11 @@ export default function ChatPage() {
                       className="flex w-full items-start justify-between rounded-sm border border-transparent px-2 py-2 text-left transition-all duration-150 hover:border-border hover:bg-secondary/40"
                     >
                       <div>
-                        <p className="text-xs lowercase text-foreground">{person.name}</p>
+                        <p className="text-xs lowercase text-foreground">
+                          {person.name}
+                        </p>
                         <p className="text-[11px] lowercase text-muted-foreground">
-                          {person.where_met} • open loop: {(person.open_loops[0] || 'none').toLowerCase()}
+                          {person.where_met || 'unknown'} • open loop: {openLoop}
                         </p>
                       </div>
                       <span className="mt-0.5 h-4 w-4 text-foreground">
@@ -131,9 +165,9 @@ export default function ChatPage() {
                       </span>
                     </button>
                   )
-                })}
-              </div>
-            )}
+                })
+              )}
+            </div>
           </PopoverContent>
         </Popover>
       }
@@ -173,7 +207,7 @@ export default function ChatPage() {
                       message.role === 'user'
                         ? 'ml-auto border-foreground/40 bg-background text-foreground'
                         : 'border-border bg-secondary/40 text-muted-foreground'
-                    }`}
+                    } ${message.pending ? 'animate-pulse' : ''}`}
                   >
                     {message.text}
                   </article>
