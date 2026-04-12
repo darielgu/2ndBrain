@@ -63,8 +63,20 @@ export interface ExtractionResult {
 
 export type RecordingStatus = 'idle' | 'recording' | 'processing' | 'error'
 
+export interface TranscriptSegment {
+  speaker: string // e.g. "person1", "person2"
+  text: string
+}
+
 export interface TranscriptChunk {
   text: string
   timestamp: number
   chunk_index: number
+  /**
+   * Speaker-segmented view of this chunk. Produced by a post-transcription
+   * LLM pass that splits the raw text into turns with consistent labels
+   * across chunks. May be absent if segmentation failed — callers should
+   * fall back to `text`.
+   */
+  segments?: TranscriptSegment[]
 }
