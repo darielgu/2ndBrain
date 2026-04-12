@@ -165,9 +165,129 @@ return valid json matching this exact schema:
   "episode_prose": "3-5 sentence prose paragraph about the whole conversation"
 }`
 
+/**
+ * Rewrite spoken email addresses in a transcript into real addresses so the
+ * extraction LLM sees them as normal emails instead of fragmented letters.
+ *
+ * Handles:
+ *   "D-A-R-I-E-L-G-U-T-I-E-R-R-E-Z @gmail.com"     → "darielgutierrez@gmail.com"
+ *   "D-A-R-I-E-L-G-U-T-I-E-R-R-E-Z\n@gmail.com"   → "darielgutierrez@gmail.com"
+ *   "jane at acme dot com"                         → "jane@acme.com"
+ *   "jane dot smith at acme dot com"               → "jane.smith@acme.com"
+ *   "J-A-N-E at acme dot com"                      → "jane@acme.com"
+ *
+ * Conservative: requires a recognizable TLD for "word at word dot word"
+ * patterns so "meet at 6pm" or "stay at that hotel" aren't reshaped.
+ */
+export function reconstructSpokenEmails(transcript: string): string {
+  let out = transcript
+
+  // Pattern A1: letter-spelling directly followed by @domain (no interruption)
+  // "A-B-C-D @gmail.com"
+  out = out.replace(
+    /((?:[A-Za-z]-){2,}[A-Za-z])\s*@\s*([A-Za-z0-9-]+(?:\.[A-Za-z]{2,}){1,3})/g,
+    (_, spelled: string, domain: string) => {
+      const local = spelled.replace(/-/g, '').toLowerCase()
+      return `${local}@${domain.toLowerCase()}`
+    },
+  )
+
+  // Pattern A2: letter-spelling, then a speaker label ("\nName: "), then @domain.
+  // This happens when the domain lands in the next speaker's turn:
+  //   person2: Yeah. D-A-R-I-E-L-G-U-T-I-E-R-R-E-Z
+  //   daniel gutierrez: @gmail.com
+  out = out.replace(
+    /((?:[A-Za-z]-){2,}[A-Za-z])[\s.]*\n[a-zA-Z][\w\s]{0,40}:\s*@\s*([A-Za-z0-9-]+(?:\.[A-Za-z]{2,}){1,3})/g,
+    (_, spelled: string, domain: string) => {
+      const local = spelled.replace(/-/g, '').toLowerCase()
+      return `${local}@${domain.toLowerCase()}`
+    },
+  )
+
+  // Pattern B: letter-by-letter + "at" word + "dot" word
+  // "A-B-C at gmail dot com"
+  out = out.replace(
+    /((?:[A-Za-z]-){2,}[A-Za-z])\s+(?:at|@)\s+([A-Za-z0-9-]+)\s+(?:dot|\.)\s+([A-Za-z]{2,10})\b/gi,
+    (_, spelled: string, domain: string, tld: string) => {
+      const local = spelled.replace(/-/g, '').toLowerCase()
+      return `${local}@${domain.toLowerCase()}.${tld.toLowerCase()}`
+    },
+  )
+
+  // Pattern C: word "dot" word "at" word "dot" word
+  // "jane dot smith at acme dot com"
+  out = out.replace(
+    /\b([A-Za-z][A-Za-z0-9]*)\s+(?:dot|\.)\s+([A-Za-z][A-Za-z0-9]*)\s+(?:at|@)\s+([A-Za-z][A-Za-z0-9-]*)\s+(?:dot|\.)\s+([A-Za-z]{2,10})\b/gi,
+    (match, a: string, b: string, c: string, d: string) => {
+      const tld = d.toLowerCase()
+      if (!KNOWN_TLDS.has(tld)) return match
+      return `${a.toLowerCase()}.${b.toLowerCase()}@${c.toLowerCase()}.${tld}`
+    },
+  )
+
+  // Pattern D: word "at" word "dot" word (simplest form)
+  // "jane at acme dot com"
+  out = out.replace(
+    /\b([A-Za-z][A-Za-z0-9._-]{1,40})\s+(?:at|@)\s+([A-Za-z][A-Za-z0-9-]{1,40})\s+(?:dot|\.)\s+([A-Za-z]{2,10})\b/gi,
+    (match, local: string, domain: string, tld: string) => {
+      const tldLower = tld.toLowerCase()
+      if (!KNOWN_TLDS.has(tldLower)) return match
+      // Skip if local looks like a common false-positive word.
+      if (FALSE_POSITIVE_LOCALS.has(local.toLowerCase())) return match
+      return `${local.toLowerCase()}@${domain.toLowerCase()}.${tldLower}`
+    },
+  )
+
+  return out
+}
+
+const KNOWN_TLDS = new Set([
+  'com',
+  'net',
+  'org',
+  'io',
+  'co',
+  'ai',
+  'app',
+  'dev',
+  'me',
+  'edu',
+  'gov',
+  'us',
+  'uk',
+  'ca',
+  'de',
+  'fr',
+  'au',
+  'jp',
+  'in',
+  'cn',
+  'xyz',
+  'tv',
+  'info',
+  'biz',
+  'tech',
+])
+
+// Words commonly preceded by "at ... dot ..." that AREN'T people giving
+// email addresses — skip these to avoid false positives.
+const FALSE_POSITIVE_LOCALS = new Set([
+  'meet',
+  'stay',
+  'arrive',
+  'be',
+  'see',
+  'look',
+  'go',
+  'come',
+  'get',
+])
+
 export async function extractMemory(
   transcript: string
 ): Promise<ExtractionResult> {
+  const normalized = reconstructSpokenEmails(transcript)
+
   const response = await openai.chat.completions.create({
     model: 'gpt-4o',
     response_format: { type: 'json_object' },
@@ -175,7 +295,7 @@ export async function extractMemory(
       { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
       {
         role: 'user',
-        content: `extract structured memory from this transcript:\n\n${transcript}`,
+        content: `extract structured memory from this transcript (spoken emails have been pre-normalized to real addresses — use them verbatim):\n\n${normalized}`,
       },
     ],
     temperature: 0.1,
