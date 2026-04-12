@@ -10,99 +10,114 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { LiveTranscript } from '@/components/live-transcript'
+import { ExtractionCard } from '@/components/extraction-card'
+import { useRecording } from '@/components/recording-provider'
+import { canCaptureSystemAudio } from '@/hooks/use-screen-recorder'
 
 type SessionMode = 'idle' | 'webcam' | 'screen'
 
 export function SessionPanel({
   onModeChange,
+  onMemorySaved,
 }: {
   onModeChange?: (mode: SessionMode) => void
+  onMemorySaved?: () => void
 }) {
   const [mode, setMode] = useState<SessionMode>('idle')
-  const [error, setError] = useState<string | null>(null)
-  const [elapsed, setElapsed] = useState(0)
+  const [webcamError, setWebcamError] = useState<string | null>(null)
+  const [webcamElapsed, setWebcamElapsed] = useState(0)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const webcamStreamRef = useRef<MediaStream | null>(null)
+  const webcamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const recorder = useRecording()
 
   useEffect(() => {
     onModeChange?.(mode)
   }, [mode, onModeChange])
 
-  const stopSession = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
-      streamRef.current = null
+  // --- Webcam mode (unchanged, partner owns this) ---
+
+  const stopWebcam = useCallback(() => {
+    if (webcamStreamRef.current) {
+      webcamStreamRef.current.getTracks().forEach((track) => track.stop())
+      webcamStreamRef.current = null
     }
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-      timerRef.current = null
+    if (webcamTimerRef.current) {
+      clearInterval(webcamTimerRef.current)
+      webcamTimerRef.current = null
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null
     }
     setMode('idle')
-    setElapsed(0)
-    setError(null)
+    setWebcamElapsed(0)
+    setWebcamError(null)
   }, [])
 
-  const startSession = useCallback(
-    async (type: 'webcam' | 'screen') => {
-      setError(null)
-      try {
-        let stream: MediaStream
-        if (type === 'webcam') {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false,
-          })
-        } else {
-          stream = await navigator.mediaDevices.getDisplayMedia({
-            video: true,
-            audio: false,
-          })
-        }
-        streamRef.current = stream
-        setMode(type)
+  const startWebcam = useCallback(async () => {
+    setWebcamError(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
+      })
+      webcamStreamRef.current = stream
+      setMode('webcam')
 
-        // Handle screen share ended via browser UI
-        if (type === 'screen') {
-          stream
-            .getVideoTracks()[0]
-            .addEventListener('ended', stopSession)
-        }
-
-        // Start elapsed timer
-        setElapsed(0)
-        timerRef.current = setInterval(() => {
-          setElapsed((prev) => prev + 1)
-        }, 1000)
-      } catch {
-        setError(
-          type === 'webcam'
-            ? 'camera access denied. check browser permissions.'
-            : 'screen share cancelled or denied.'
-        )
-      }
-    },
-    [stopSession]
-  )
-
-  // Attach stream to video element when mode changes
-  useEffect(() => {
-    if (videoRef.current && streamRef.current) {
-      videoRef.current.srcObject = streamRef.current
+      setWebcamElapsed(0)
+      webcamTimerRef.current = setInterval(() => {
+        setWebcamElapsed((prev) => prev + 1)
+      }, 1000)
+    } catch {
+      setWebcamError('camera access denied. check browser permissions.')
     }
-  }, [mode])
+  }, [])
+
+  // --- Screen mode (uses the recorder hook) ---
+
+  const startScreenCapture = useCallback(async () => {
+    await recorder.startRecording()
+    // Only set mode if recording actually started (no error)
+    if (!recorder.error) {
+      setMode('screen')
+    }
+  }, [recorder])
+
+  const stopScreenCapture = useCallback(async () => {
+    await recorder.stopRecording()
+    setMode('idle')
+    onMemorySaved?.()
+  }, [recorder, onMemorySaved])
+
+  // React to recorder status — if it errors or becomes idle externally, sync UI
+  useEffect(() => {
+    if (mode === 'screen' && recorder.status === 'idle' && !recorder.extraction) {
+      setMode('idle')
+    }
+  }, [mode, recorder.status, recorder.extraction])
+
+  // Attach webcam or screen stream to video element
+  useEffect(() => {
+    if (!videoRef.current) return
+    if (mode === 'webcam') {
+      videoRef.current.srcObject = webcamStreamRef.current
+    } else if (mode === 'screen') {
+      videoRef.current.srcObject = recorder.stream
+    } else {
+      videoRef.current.srcObject = null
+    }
+  }, [mode, recorder.stream])
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop())
+      if (webcamStreamRef.current) {
+        webcamStreamRef.current.getTracks().forEach((t) => t.stop())
       }
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
+      if (webcamTimerRef.current) {
+        clearInterval(webcamTimerRef.current)
       }
     }
   }, [])
@@ -115,104 +130,158 @@ export function SessionPanel({
     return `${m}:${s}`
   }
 
+  const currentElapsed = mode === 'webcam' ? webcamElapsed : recorder.elapsed
+  const currentError = mode === 'webcam' ? webcamError : recorder.error
+
+  // --- Idle state: show two mode selection buttons ---
   if (mode === 'idle') {
+    const systemAudioSupported = typeof window !== 'undefined' && canCaptureSystemAudio()
+
     return (
-      <Card className="rounded-none border-border bg-background/40 shadow-none">
-        <CardHeader className="gap-1 px-4 py-4">
-          <CardTitle className="flex items-center gap-2 text-sm lowercase">
-            <Video className="h-4 w-4 text-muted-foreground" />
-            start a session
-          </CardTitle>
-          <CardDescription className="text-xs lowercase">
-            choose how you want to capture this interaction.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="px-4 pb-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            <button
-              onClick={() => startSession('webcam')}
-              className="group border border-border bg-secondary/30 p-6 text-left transition-colors hover:border-accent hover:bg-accent/5"
-            >
-              <Camera className="mb-3 h-8 w-8 text-muted-foreground transition-colors group-hover:text-accent" />
-              <p className="text-sm lowercase">webcam</p>
-              <p className="mt-1 text-xs lowercase text-muted-foreground">
-                in-person interaction. face recognition enabled.
+      <div className="space-y-4">
+        <Card className="rounded-none border-border bg-background/40 shadow-none">
+          <CardHeader className="gap-1 px-4 py-4">
+            <CardTitle className="flex items-center gap-2 text-sm lowercase">
+              <Video className="h-4 w-4 text-muted-foreground" />
+              start a session
+            </CardTitle>
+            <CardDescription className="text-xs lowercase">
+              choose how you want to capture this interaction.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <button
+                onClick={startWebcam}
+                className="group border border-border bg-secondary/30 p-6 text-left transition-colors hover:border-accent hover:bg-accent/5"
+              >
+                <Camera className="mb-3 h-8 w-8 text-muted-foreground transition-colors group-hover:text-accent" />
+                <p className="text-sm lowercase">webcam</p>
+                <p className="mt-1 text-xs lowercase text-muted-foreground">
+                  in-person interaction. face recognition enabled.
+                </p>
+              </button>
+              <button
+                onClick={startScreenCapture}
+                className="group border border-border bg-secondary/30 p-6 text-left transition-colors hover:border-accent hover:bg-accent/5"
+              >
+                <Monitor className="mb-3 h-8 w-8 text-muted-foreground transition-colors group-hover:text-accent" />
+                <p className="text-sm lowercase">screen capture</p>
+                <p className="mt-1 text-xs lowercase text-muted-foreground">
+                  online interaction. capture meetings, calls, chats.
+                </p>
+              </button>
+            </div>
+            {!systemAudioSupported && (
+              <p className="mt-3 text-xs lowercase text-muted-foreground">
+                note: system audio capture works best in chrome or edge.
               </p>
-            </button>
-            <button
-              onClick={() => startSession('screen')}
-              className="group border border-border bg-secondary/30 p-6 text-left transition-colors hover:border-accent hover:bg-accent/5"
-            >
-              <Monitor className="mb-3 h-8 w-8 text-muted-foreground transition-colors group-hover:text-accent" />
-              <p className="text-sm lowercase">screen capture</p>
-              <p className="mt-1 text-xs lowercase text-muted-foreground">
-                online interaction. capture meetings, calls, chats.
+            )}
+            {currentError && (
+              <p className="mt-3 text-xs lowercase text-destructive">
+                {currentError}
               </p>
-            </button>
-          </div>
-          {error && (
-            <p className="mt-3 text-xs lowercase text-destructive">{error}</p>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Show extraction result after a recording finishes */}
+        {recorder.extraction && (
+          <ExtractionCard extraction={recorder.extraction} />
+        )}
+      </div>
     )
   }
 
+  // --- Active recording state ---
   return (
-    <Card className="rounded-none border-border bg-background/40 shadow-none">
-      <CardHeader className="gap-1 px-4 py-4">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-sm lowercase">
-            {mode === 'webcam' ? (
-              <Camera className="h-4 w-4 text-accent" />
-            ) : (
-              <Monitor className="h-4 w-4 text-accent" />
-            )}
-            {mode === 'webcam' ? 'webcam session' : 'screen capture session'}
-          </CardTitle>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 animate-pulse bg-red-500" />
-              <span className="font-mono text-xs lowercase text-muted-foreground">
-                {formatTime(elapsed)}
-              </span>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1.5 rounded-none border-border px-3 text-xs lowercase hover:border-destructive hover:text-destructive"
-              onClick={stopSession}
-            >
-              <Square className="h-3 w-3" />
-              end session
-            </Button>
-          </div>
-        </div>
-        <CardDescription className="text-xs lowercase">
-          {mode === 'webcam'
-            ? 'capturing in-person interaction. face recognition active.'
-            : 'capturing screen activity. analyzing online interaction.'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="px-4 pb-4">
-        <div className="relative border border-border bg-black">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="aspect-video w-full object-contain"
-          />
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-3">
-            <div className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 animate-pulse bg-red-500" />
-              <span className="text-[10px] uppercase tracking-widest text-white/70">
-                {mode === 'webcam' ? 'live — webcam' : 'live — screen'}
-              </span>
+    <div className="space-y-4">
+      <Card className="rounded-none border-border bg-background/40 shadow-none">
+        <CardHeader className="gap-1 px-4 py-4">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-sm lowercase">
+              {mode === 'webcam' ? (
+                <Camera className="h-4 w-4 text-accent" />
+              ) : (
+                <Monitor className="h-4 w-4 text-accent" />
+              )}
+              {mode === 'webcam' ? 'webcam session' : 'screen capture session'}
+            </CardTitle>
+            <div className="flex items-center gap-3">
+              {mode === 'screen' && recorder.isTranscribing && (
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 animate-pulse bg-accent" />
+                  <span className="text-[10px] lowercase text-muted-foreground">
+                    transcribing
+                  </span>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 animate-pulse bg-red-500" />
+                <span className="font-mono text-xs lowercase text-muted-foreground">
+                  {formatTime(currentElapsed)}
+                </span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 rounded-none border-border px-3 text-xs lowercase hover:border-destructive hover:text-destructive"
+                onClick={mode === 'webcam' ? stopWebcam : stopScreenCapture}
+              >
+                <Square className="h-3 w-3" />
+                end session
+              </Button>
             </div>
           </div>
-        </div>
-      </CardContent>
-    </Card>
+          <CardDescription className="text-xs lowercase">
+            {mode === 'webcam'
+              ? 'capturing in-person interaction. face recognition active.'
+              : 'capturing screen + audio. transcribing in 15s chunks.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <div className="relative border border-border bg-black">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="aspect-video w-full object-contain"
+            />
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-3">
+              <div className="flex items-center gap-2">
+                <span className="h-1.5 w-1.5 animate-pulse bg-red-500" />
+                <span className="text-[10px] uppercase tracking-widest text-white/70">
+                  {mode === 'webcam' ? 'live — webcam' : 'live — screen'}
+                </span>
+              </div>
+            </div>
+          </div>
+          {currentError && (
+            <p className="mt-3 text-xs lowercase text-destructive">
+              {currentError}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Live transcript only for screen mode */}
+      {mode === 'screen' && (
+        <LiveTranscript
+          chunks={recorder.chunks}
+          isTranscribing={recorder.isTranscribing}
+        />
+      )}
+
+      {/* Processing indicator after stopping */}
+      {recorder.status === 'processing' && (
+        <Card className="rounded-none border-border bg-background/40 shadow-none">
+          <CardContent className="flex items-center gap-2 px-4 py-4 text-sm lowercase text-muted-foreground">
+            <span className="h-2 w-2 animate-pulse bg-accent" />
+            extracting memory from transcript...
+          </CardContent>
+        </Card>
+      )}
+    </div>
   )
 }

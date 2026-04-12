@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { PromptInputBox } from '@/components/ui/ai-prompt-box'
 import { SessionPanel } from '@/components/session-panel'
+import { RecordingProvider } from '@/components/recording-provider'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,38 +24,45 @@ import {
 } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { usePeople, useEpisodes } from '@/hooks/use-memory'
+import type { Person, Episode } from '@/lib/types'
 
-const people = [
+// --- Mock data used as fallback when Nia has no data or errors ---
+
+const mockPeople: (Person & { avatar?: string })[] = [
   {
+    person_id: 'maya',
     name: 'maya',
-    whereMet: 'hackathon',
+    where_met: 'hackathon',
     summary: 'works on voice infra',
-    openLoop: 'send repo',
-    lastSeen: '3h ago',
+    open_loops: ['send repo'],
+    last_seen: '3h ago',
     avatar:
       'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=240&h=240&fit=crop&auto=format',
   },
   {
+    person_id: 'elijah',
     name: 'elijah',
-    whereMet: 'co-working loft',
+    where_met: 'co-working loft',
     summary: 'shipping a wearables prototype',
-    openLoop: 'intro to camera ml lead',
-    lastSeen: 'yesterday',
+    open_loops: ['intro to camera ml lead'],
+    last_seen: 'yesterday',
     avatar:
       'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=240&h=240&fit=crop&auto=format',
   },
   {
+    person_id: 'sara',
     name: 'sara',
-    whereMet: 'product meetup',
+    where_met: 'product meetup',
     summary: 'building agent onboarding flows',
-    openLoop: 'share memory schema',
-    lastSeen: '2d ago',
+    open_loops: ['share memory schema'],
+    last_seen: '2d ago',
     avatar:
       'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=240&h=240&fit=crop&auto=format',
   },
 ]
 
-const recentEpisodes = [
+const mockEpisodes = [
   {
     person: 'maya',
     topic: 'voice infra',
@@ -80,17 +88,74 @@ const chatMessages = [
   },
 ]
 
-const activeLoops = [
-  'send repo to maya',
-  'intro elijah to camera ml lead',
-  'share memory schema with sara',
-]
+// Format a timestamp like "apr 12, 09:10" from ISO
+function formatTimestamp(iso: string): string {
+  try {
+    const d = new Date(iso)
+    const month = d.toLocaleString('en-US', { month: 'short' }).toLowerCase()
+    const day = d.getDate()
+    const time = d.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    return `${month} ${day}, ${time}`
+  } catch {
+    return iso
+  }
+}
 
-export default function DashboardPage() {
+// Relative time "3h ago"
+function relativeTime(iso: string): string {
+  try {
+    const diff = Date.now() - new Date(iso).getTime()
+    const minutes = Math.floor(diff / 60_000)
+    if (minutes < 1) return 'just now'
+    if (minutes < 60) return `${minutes}m ago`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    return `${days}d ago`
+  } catch {
+    return iso
+  }
+}
+
+function DashboardContent() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [sessionMode, setSessionMode] = useState<
-    'idle' | 'webcam' | 'screen'
-  >('idle')
+  const [sessionMode, setSessionMode] = useState<'idle' | 'webcam' | 'screen'>(
+    'idle'
+  )
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const { people: niaPeople, isLoading: peopleLoading } = usePeople(refreshKey)
+  const { episodes: niaEpisodes, isLoading: episodesLoading } =
+    useEpisodes(refreshKey)
+
+  // Use real data when available, otherwise fall back to mock
+  const hasRealPeople = !peopleLoading && niaPeople.length > 0
+  const displayPeople = hasRealPeople ? niaPeople : mockPeople
+
+  const hasRealEpisodes = !episodesLoading && niaEpisodes.length > 0
+  const displayEpisodes = hasRealEpisodes
+    ? niaEpisodes.map((e) => ({
+        person: e.person_ids[0] || 'unknown',
+        topic: e.topics.join(', '),
+        promise: e.promises[0] || 'no promise',
+        timestamp: formatTimestamp(e.timestamp),
+      }))
+    : mockEpisodes
+
+  // Derive active loops from people's open_loops
+  const activeLoops = hasRealPeople
+    ? niaPeople.flatMap((p) =>
+        p.open_loops.map((loop) => `${loop} (${p.name})`)
+      )
+    : [
+        'send repo to maya',
+        'intro elijah to camera ml lead',
+        'share memory schema with sara',
+      ]
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -105,12 +170,22 @@ export default function DashboardPage() {
                 memory oracle
               </h1>
             </div>
-            <Badge
-              variant="outline"
-              className="rounded-none border-border px-2 py-1 text-[10px] tracking-widest text-muted-foreground"
-            >
-              powered by nia
-            </Badge>
+            <div className="flex items-center gap-2">
+              {hasRealPeople && (
+                <Badge
+                  variant="outline"
+                  className="rounded-none border-accent/40 bg-accent/10 px-2 py-1 text-[10px] tracking-widest text-accent"
+                >
+                  live
+                </Badge>
+              )}
+              <Badge
+                variant="outline"
+                className="rounded-none border-border px-2 py-1 text-[10px] tracking-widest text-muted-foreground"
+              >
+                powered by nia
+              </Badge>
+            </div>
           </div>
         </header>
 
@@ -126,37 +201,46 @@ export default function DashboardPage() {
                   people
                 </p>
                 <span className="text-xs lowercase text-muted-foreground">
-                  crm view
+                  {hasRealPeople ? `${displayPeople.length} known` : 'crm view'}
                 </span>
               </div>
 
               <div className="space-y-2">
-                {people.map((person) => (
-                  <article
-                    key={person.name}
-                    className="border border-border bg-background/40 p-3"
-                  >
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={person.avatar}
-                          alt={`${person.name} avatar`}
-                          className="h-8 w-8 rounded-full border border-border object-cover"
-                        />
-                        <p className="text-sm lowercase">{person.name}</p>
+                {displayPeople.map((person) => {
+                  const lastSeenLabel = hasRealPeople
+                    ? relativeTime(person.last_seen)
+                    : person.last_seen
+                  const maybeAvatar = (person as { avatar?: string }).avatar
+                  const avatar: string =
+                    maybeAvatar ||
+                    `https://api.dicebear.com/7.x/initials/svg?seed=${person.name}`
+                  return (
+                    <article
+                      key={person.person_id || person.name}
+                      className="border border-border bg-background/40 p-3"
+                    >
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <img
+                            src={avatar}
+                            alt={`${person.name} avatar`}
+                            className="h-8 w-8 rounded-full border border-border object-cover"
+                          />
+                          <p className="text-sm lowercase">{person.name}</p>
+                        </div>
+                        <span className="text-[11px] lowercase text-muted-foreground">
+                          {lastSeenLabel}
+                        </span>
                       </div>
-                      <span className="text-[11px] lowercase text-muted-foreground">
-                        {person.lastSeen}
-                      </span>
-                    </div>
-                    <p className="text-xs lowercase text-muted-foreground">
-                      met at {person.whereMet}
-                    </p>
-                    <p className="mt-2 text-xs lowercase text-foreground/90">
-                      {person.summary}
-                    </p>
-                  </article>
-                ))}
+                      <p className="text-xs lowercase text-muted-foreground">
+                        met at {person.where_met}
+                      </p>
+                      <p className="mt-2 text-xs lowercase text-foreground/90">
+                        {person.summary}
+                      </p>
+                    </article>
+                  )
+                })}
               </div>
 
               <Separator className="my-4" />
@@ -222,9 +306,12 @@ export default function DashboardPage() {
               </div>
 
               <TabsContent value="session" className="space-y-4">
-                <SessionPanel onModeChange={setSessionMode} />
+                <SessionPanel
+                  onModeChange={setSessionMode}
+                  onMemorySaved={() => setRefreshKey((k) => k + 1)}
+                />
 
-                {sessionMode !== 'idle' && (
+                {sessionMode !== 'idle' && !hasRealPeople && (
                   <div className="grid gap-4 md:grid-cols-2">
                     <Card className="rounded-none border-border bg-background/40 shadow-none">
                       <CardHeader className="gap-1 px-4 py-4">
@@ -299,9 +386,9 @@ export default function DashboardPage() {
             <Separator className="my-4" />
 
             <section className="grid gap-3 md:grid-cols-2">
-              {recentEpisodes.map((episode) => (
+              {displayEpisodes.map((episode, i) => (
                 <article
-                  key={`${episode.person}-${episode.timestamp}`}
+                  key={`${episode.person}-${episode.timestamp}-${i}`}
                   className="border border-border bg-background/40 p-3"
                 >
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -323,5 +410,13 @@ export default function DashboardPage() {
         </section>
       </div>
     </main>
+  )
+}
+
+export default function DashboardPage() {
+  return (
+    <RecordingProvider>
+      <DashboardContent />
+    </RecordingProvider>
   )
 }
