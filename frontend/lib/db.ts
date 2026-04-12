@@ -66,11 +66,25 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_episodes_timestamp ON episodes(timestamp DESC);
   `)
 
-  // Forward migrations for pre-existing dbs. Each ALTER is wrapped because
-  // "duplicate column" fires on already-migrated dbs and should be swallowed.
-  try {
-    db.exec(`ALTER TABLE people ADD COLUMN face_image TEXT`)
-  } catch {}
+  // Forward migrations for pre-existing dbs. ALTER TABLE ADD COLUMN throws
+  // on duplicate — swallow it so reboots are idempotent.
+  const addColumns: Array<[string, string]> = [
+    ['face_image', 'TEXT'],
+    ['email', 'TEXT'],
+    ['job_title', 'TEXT'],
+    ['company', 'TEXT'],
+    ['linkedin_url', 'TEXT'],
+    ['instagram', 'TEXT'],
+    ['twitter', 'TEXT'],
+    ['manual_notes', 'TEXT'],
+  ]
+  for (const [col, type] of addColumns) {
+    try {
+      db.exec(`ALTER TABLE people ADD COLUMN ${col} ${type}`)
+    } catch {
+      // column already exists
+    }
+  }
 
   _db = db
   return db
@@ -154,6 +168,13 @@ interface PersonRow {
   nia_context_id: string | null
   created_at: number
   updated_at: number
+  email: string | null
+  job_title: string | null
+  company: string | null
+  linkedin_url: string | null
+  instagram: string | null
+  twitter: string | null
+  manual_notes: string | null
 }
 
 function rowToPerson(row: PersonRow): Person {
@@ -168,6 +189,13 @@ function rowToPerson(row: PersonRow): Person {
     face_image: row.face_image || undefined,
     last_seen: row.last_seen || '',
     nia_context_id: row.nia_context_id || undefined,
+    email: row.email || undefined,
+    job_title: row.job_title || undefined,
+    company: row.company || undefined,
+    linkedin_url: row.linkedin_url || undefined,
+    instagram: row.instagram || undefined,
+    twitter: row.twitter || undefined,
+    manual_notes: row.manual_notes || undefined,
   }
 }
 
@@ -196,10 +224,12 @@ export function upsertPerson(person: Person): void {
   db.prepare(
     `INSERT INTO people (
       person_id, name, where_met, summary, open_loops, notes, prose,
-      face_image, last_seen, nia_context_id, created_at, updated_at
+      face_image, last_seen, nia_context_id, created_at, updated_at,
+      email, job_title, company, linkedin_url, instagram, twitter, manual_notes
     ) VALUES (
       @person_id, @name, @where_met, @summary, @open_loops, @notes, @prose,
-      @face_image, @last_seen, @nia_context_id, @created_at, @updated_at
+      @face_image, @last_seen, @nia_context_id, @created_at, @updated_at,
+      @email, @job_title, @company, @linkedin_url, @instagram, @twitter, @manual_notes
     )
     ON CONFLICT(person_id) DO UPDATE SET
       name           = excluded.name,
@@ -211,7 +241,14 @@ export function upsertPerson(person: Person): void {
       face_image     = COALESCE(excluded.face_image, people.face_image),
       last_seen      = excluded.last_seen,
       nia_context_id = COALESCE(excluded.nia_context_id, people.nia_context_id),
-      updated_at     = excluded.updated_at`,
+      updated_at     = excluded.updated_at,
+      email          = COALESCE(excluded.email, people.email),
+      job_title      = COALESCE(excluded.job_title, people.job_title),
+      company        = COALESCE(excluded.company, people.company),
+      linkedin_url   = COALESCE(excluded.linkedin_url, people.linkedin_url),
+      instagram      = COALESCE(excluded.instagram, people.instagram),
+      twitter        = COALESCE(excluded.twitter, people.twitter),
+      manual_notes   = COALESCE(excluded.manual_notes, people.manual_notes)`,
   ).run({
     person_id: person.person_id,
     name: person.name,
@@ -225,6 +262,13 @@ export function upsertPerson(person: Person): void {
     nia_context_id: person.nia_context_id || null,
     created_at: existing?.created_at ?? now,
     updated_at: now,
+    email: person.email || null,
+    job_title: person.job_title || null,
+    company: person.company || null,
+    linkedin_url: person.linkedin_url || null,
+    instagram: person.instagram || null,
+    twitter: person.twitter || null,
+    manual_notes: person.manual_notes || null,
   })
 }
 

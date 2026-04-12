@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/card'
 import { LiveTranscript } from '@/components/live-transcript'
 import { ExtractionCard } from '@/components/extraction-card'
+import { ActionProposals } from '@/components/action-proposals'
 import { SessionEnding } from '@/components/session-ending'
 import { useRecording } from '@/components/recording-provider'
 import { canCaptureSystemAudio } from '@/hooks/use-screen-recorder'
@@ -221,6 +222,7 @@ export function SessionPanel({
               extraction={recorder.extraction}
               visualPeople={recorder.visualPeople}
             />
+            <ActionProposals extraction={recorder.extraction} />
             {recorder.chunks.length > 0 && (
               <LiveTranscript
                 chunks={recorder.chunks}
