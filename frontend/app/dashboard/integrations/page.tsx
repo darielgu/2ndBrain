@@ -2,19 +2,26 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import type { ComponentType, SVGProps } from 'react'
 import {
-  Mail,
-  Calendar,
-  Video,
-  Users,
-  HardDrive,
-  CheckSquare,
-  Plug,
   CheckCircle2,
   Circle,
   XCircle,
-  type LucideIcon,
+  Users,
 } from 'lucide-react'
+import {
+  SiGmail,
+  SiGooglecalendar,
+  SiGooglemeet,
+  SiGoogledrive,
+  SiGoogletasks,
+  SiSlack,
+  SiLinear,
+  SiNotion,
+  SiApple,
+} from 'react-icons/si'
+
+type IconType = ComponentType<SVGProps<SVGSVGElement>>
 import { Button } from '@/components/ui/button'
 import { loadOnboardingProfile, slugifyName } from '@/lib/onboarding-profile'
 
@@ -36,7 +43,8 @@ interface Integration {
   provider: string
   name: string
   blurb: string
-  icon: LucideIcon
+  icon: IconType
+  iconColor?: string
   scope?: string // substring to look for in the granted scope string
   state: IntegrationState
 }
@@ -48,7 +56,8 @@ const GOOGLE_INTEGRATIONS: Integration[] = [
     provider: 'google',
     name: 'gmail — inbox',
     blurb: 'read recent threads, extract people, promises, open loops.',
-    icon: Mail,
+    icon: SiGmail,
+    iconColor: '#EA4335',
     scope: 'gmail.readonly',
     state: 'available',
   },
@@ -57,7 +66,8 @@ const GOOGLE_INTEGRATIONS: Integration[] = [
     provider: 'google',
     name: 'gmail — send + draft',
     blurb: 'send emails or drop drafts for you to review before sending.',
-    icon: Mail,
+    icon: SiGmail,
+    iconColor: '#EA4335',
     scope: 'gmail.send',
     state: 'available',
   },
@@ -66,7 +76,8 @@ const GOOGLE_INTEGRATIONS: Integration[] = [
     provider: 'google',
     name: 'calendar',
     blurb: 'read past + upcoming events, book new ones on your behalf.',
-    icon: Calendar,
+    icon: SiGooglecalendar,
+    iconColor: '#4285F4',
     scope: 'auth/calendar',
     state: 'available',
   },
@@ -75,7 +86,8 @@ const GOOGLE_INTEGRATIONS: Integration[] = [
     provider: 'google',
     name: 'google meet',
     blurb: 'auto-generate meet links when booking calendar events.',
-    icon: Video,
+    icon: SiGooglemeet,
+    iconColor: '#00897B',
     // Meet rides on the calendar scope — no separate scope exists.
     scope: 'auth/calendar',
     state: 'available',
@@ -86,6 +98,7 @@ const GOOGLE_INTEGRATIONS: Integration[] = [
     name: 'contacts (people api)',
     blurb: 'seed the people graph with names, emails, orgs, titles.',
     icon: Users,
+    iconColor: '#1A73E8',
     scope: 'contacts.readonly',
     state: 'available',
   },
@@ -94,7 +107,8 @@ const GOOGLE_INTEGRATIONS: Integration[] = [
     provider: 'google',
     name: 'drive',
     blurb: 'index google docs + files you already have access to.',
-    icon: HardDrive,
+    icon: SiGoogledrive,
+    iconColor: '#1FA463',
     scope: 'drive.readonly',
     state: 'available',
   },
@@ -103,7 +117,8 @@ const GOOGLE_INTEGRATIONS: Integration[] = [
     provider: 'google',
     name: 'tasks',
     blurb: 'turn extracted promises into real to-dos with due dates.',
-    icon: CheckSquare,
+    icon: SiGoogletasks,
+    iconColor: '#4285F4',
     scope: 'auth/tasks',
     state: 'available',
   },
@@ -116,7 +131,8 @@ const UPCOMING: Integration[] = [
     provider: 'slack',
     name: 'slack',
     blurb: 'read dms + threads, surface commitments made in channels.',
-    icon: Plug,
+    icon: SiSlack,
+    iconColor: '#4A154B',
     state: 'soon',
   },
   {
@@ -124,7 +140,8 @@ const UPCOMING: Integration[] = [
     provider: 'linear',
     name: 'linear',
     blurb: 'create issues from extracted next-actions.',
-    icon: Plug,
+    icon: SiLinear,
+    iconColor: '#5E6AD2',
     state: 'soon',
   },
   {
@@ -132,7 +149,8 @@ const UPCOMING: Integration[] = [
     provider: 'notion',
     name: 'notion',
     blurb: 'sync episodes into a memory page.',
-    icon: Plug,
+    icon: SiNotion,
+    iconColor: '#FFFFFF',
     state: 'soon',
   },
   {
@@ -140,7 +158,8 @@ const UPCOMING: Integration[] = [
     provider: 'apple',
     name: 'imessage (local)',
     blurb: 'read local message history on macos — no cloud required.',
-    icon: Plug,
+    icon: SiApple,
+    iconColor: '#FFFFFF',
     state: 'soon',
   },
 ]
@@ -283,7 +302,10 @@ function IntegrationCard({ item }: { item: Integration }) {
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center border border-border bg-background/60">
-            <Icon className="h-4 w-4" />
+            <Icon
+              className="h-4 w-4"
+              style={item.iconColor ? { color: item.iconColor } : undefined}
+            />
           </span>
           <div>
             <p className="text-foreground">{item.name}</p>
