@@ -67,11 +67,43 @@ export async function classifyActions(input: {
   ]
   if (actions.length === 0) return []
 
-  const peopleContext = input.people.slice(0, 50).map((p) => ({
-    name: p.name,
-    email: p.email || null,
-    company: p.company || null,
-  }))
+  // Merge freshly-extracted contact fields with sqlite known-people. The
+  // fresh ones might not have landed in sqlite yet (race with session save),
+  // and even if they did, the extraction's email for the current call is the
+  // most up-to-date signal. Dedupe by lowercased name, fresh wins on conflict.
+  const freshByName = new Map<
+    string,
+    { name: string; email: string | null; company: string | null }
+  >()
+  for (const fp of input.extraction.people) {
+    if (!fp.name) continue
+    freshByName.set(fp.name.trim().toLowerCase(), {
+      name: fp.name,
+      email: fp.email || null,
+      company: fp.company || null,
+    })
+  }
+
+  const seen = new Set<string>()
+  const peopleContext: Array<{
+    name: string
+    email: string | null
+    company: string | null
+  }> = []
+  for (const fp of freshByName.values()) {
+    peopleContext.push(fp)
+    seen.add(fp.name.trim().toLowerCase())
+  }
+  for (const p of input.people.slice(0, 50)) {
+    const key = p.name.trim().toLowerCase()
+    if (seen.has(key)) continue
+    peopleContext.push({
+      name: p.name,
+      email: p.email || null,
+      company: p.company || null,
+    })
+    seen.add(key)
+  }
 
   const now = input.referenceIso || new Date().toISOString()
   const tz = input.timeZone || 'America/New_York'

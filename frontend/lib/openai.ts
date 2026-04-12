@@ -118,12 +118,28 @@ rules (strict):
 - prefer precision over recall — "boring but correct" over "smart but wrong"
 
 contact fields (per person — CRITICAL rules):
-- only populate email / job_title / company / linkedin_url / phone when the person EXPLICITLY states it in the transcript ("my email is jane@acme.com", "i'm head of ops at stripe", "text me at 415...").
+- only populate email / job_title / company / linkedin_url / phone when the person EXPLICITLY states it in the transcript.
 - do NOT guess from context, do NOT infer from a company domain, do NOT fabricate.
-- if a field wasn't stated, omit it entirely from the json (don't set to null, don't include the key).
-- email: must be a well-formed address (contains "@" and a dot). don't accept partial mentions.
-- linkedin_url: include only if a full url or clear handle is given.
-- phone: digits only (international format ok).
+- if a field wasn't stated, omit it entirely from the json (don't include the key at all).
+
+EMAILS — TRANSCRIPTION HANDLING (very important):
+speech-to-text writes emails phonetically. reconstruct them:
+- "jane at acme dot com" → "jane@acme.com"
+- "j dash smith at acme dot com" → "j-smith@acme.com"
+- "jane underscore smith at acme" → "jane_smith@acme.com" (only if the tld is also stated)
+- "D-A-R-I-L at punchai dot com" (letter-spelling) → "daril@punchai.com"
+- do not auto-correct spelling. if someone spells "D-A-R-I-L" letter-by-letter, use that exact sequence, do NOT change it to "daryl" even if that's a more common spelling.
+- require a recognizable domain ending (dot com / dot io / dot co / .edu / etc) — if the tld is missing, omit the field.
+- the address must have a clearly-identifiable local-part and domain. ambiguous mentions like "email me" without an address → omit.
+- if the same person states TWO different emails in the same transcript, use the LAST one stated (they're likely correcting themselves).
+
+NAMES:
+- when a speaker spells their name letter-by-letter ("D-A-R-I-L"), use that exact spelling as the name. do not normalize to a more common variant.
+- use the spelled form even if it disagrees with an earlier mention that was transcribed auto-correctively.
+
+OTHER CONTACT FIELDS:
+- linkedin_url: full url or clear handle only.
+- phone: reconstruct "four one five" → "415"; digits only.
 
 prose writing:
 - prose_summary (per person): 2-4 sentences describing this specific person based ONLY on what the transcript reveals. include their role, what they work on, any relevant facts, and what was promised to or by them. write naturally, as if describing them to a friend. use their name. do NOT invent details.
