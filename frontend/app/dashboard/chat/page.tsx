@@ -11,11 +11,13 @@ type ChatMessage = {
   id: string
   role: 'user' | 'assistant'
   text: string
+  pending?: boolean
 }
 
 export default function ChatPage() {
   const [selectedPeopleIds, setSelectedPeopleIds] = useState<string[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [isSending, setIsSending] = useState(false)
 
   const selectedPeople = useMemo(
     () => people.filter((person) => selectedPeopleIds.includes(person.id)),
@@ -30,20 +32,59 @@ export default function ChatPage() {
     )
   }
 
-  const handleSend = (message: string) => {
+  const handleSend = async (message: string) => {
     const trimmedMessage = message.trim()
-    if (!trimmedMessage) return
+    if (!trimmedMessage || isSending) return
 
-    const selectedNames = selectedPeople.map((person) => person.name).join(', ')
-    const assistantText = selectedNames
-      ? `context attached for ${selectedNames}. what do you want to recall first?`
-      : 'memory context queued. what should i pull up?'
+    const userMsg: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      text: trimmedMessage,
+    }
+    const pendingId = `assistant-${Date.now() + 1}`
+    const pendingMsg: ChatMessage = {
+      id: pendingId,
+      role: 'assistant',
+      text: 'searching memory…',
+      pending: true,
+    }
 
-    setMessages((prev) => [
-      ...prev,
-      { id: `user-${Date.now()}`, role: 'user', text: trimmedMessage },
-      { id: `assistant-${Date.now() + 1}`, role: 'assistant', text: assistantText },
-    ])
+    const nextMessages = [...messages, userMsg]
+    setMessages([...nextMessages, pendingMsg])
+    setIsSending(true)
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: nextMessages.map((m) => ({ role: m.role, text: m.text })),
+          personIds: selectedPeopleIds,
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+      const reply =
+        typeof data?.reply === 'string' && data.reply.length > 0
+          ? data.reply
+          : 'could not reach memory. try again.'
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === pendingId ? { ...m, text: reply, pending: false } : m,
+        ),
+      )
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === pendingId
+            ? { ...m, text: 'memory lookup failed.', pending: false }
+            : m,
+        ),
+      )
+    } finally {
+      setIsSending(false)
+    }
   }
 
   const promptBox = (
@@ -136,7 +177,7 @@ export default function ChatPage() {
                       message.role === 'user'
                         ? 'ml-auto border-foreground/40 bg-background text-foreground'
                         : 'border-border bg-secondary/40 text-muted-foreground'
-                    }`}
+                    } ${message.pending ? 'animate-pulse' : ''}`}
                   >
                     {message.text}
                   </article>

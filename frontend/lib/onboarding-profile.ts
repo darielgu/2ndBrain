@@ -15,6 +15,15 @@ const isHttpUrl = (value: string) => {
   }
 }
 
+export const slugifyName = (name: string) => {
+  const s = name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return s || 'anon'
+}
+
 export const normalizeUrlInput = (raw: string) => {
   const trimmed = raw.trim()
   if (!trimmed) {

@@ -14,6 +14,9 @@ const nextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // better-sqlite3 ships a native .node addon — keep it out of the server bundle
+  // so it's resolved at runtime instead of being webpack-ed.
+  serverExternalPackages: ['better-sqlite3'],
 }
 
 export default nextConfig

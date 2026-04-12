@@ -1,5 +1,6 @@
 import { Link2, UserRound } from 'lucide-react'
 import { people, recentEpisodes } from '@/lib/dashboard-data'
+import { SyncGoogleCard } from '@/components/sync-google-card'
 
 const personById = Object.fromEntries(people.map((person) => [person.id, person]))
 
@@ -10,6 +11,8 @@ export default function OverviewPage() {
         <p className="text-xs tracking-widest text-muted-foreground">secondbrain / overview</p>
         <h1 className="mt-1 text-2xl lowercase tracking-tight md:text-3xl">relationship memory overview</h1>
       </div>
+
+      <SyncGoogleCard />
 
       <div className="border border-border bg-background/30 p-4">
         <p className="mb-3 flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">

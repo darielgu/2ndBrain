@@ -15,3 +15,10 @@ node_modules
 .next/
 .DS_Store
 *.tsbuildinfo
+
+# Local sqlite database
+/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
