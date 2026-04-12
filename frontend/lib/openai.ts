@@ -226,15 +226,21 @@ export function reconstructSpokenEmails(transcript: string): string {
   )
 
   // Pattern D: word "at" word "dot" word (simplest form)
-  // "jane at acme dot com"
+  // "jane at acme dot com" → "jane@acme.com"
+  // "c-s-h-e-a-t-89 at gmail dot com" → "csheat89@gmail.com" (dashes stripped)
   out = out.replace(
     /\b([A-Za-z][A-Za-z0-9._-]{1,40})\s+(?:at|@)\s+([A-Za-z][A-Za-z0-9-]{1,40})\s+(?:dot|\.)\s+([A-Za-z]{2,10})\b/gi,
     (match, local: string, domain: string, tld: string) => {
       const tldLower = tld.toLowerCase()
       if (!KNOWN_TLDS.has(tldLower)) return match
-      // Skip if local looks like a common false-positive word.
       if (FALSE_POSITIVE_LOCALS.has(local.toLowerCase())) return match
-      return `${local.toLowerCase()}@${domain.toLowerCase()}.${tldLower}`
+      // Strip dashes from letter-spelled locals like "c-s-h-e-a-t-89".
+      // Detects: all characters are alphanumeric singles separated by dashes.
+      let cleanLocal = local.toLowerCase()
+      if (/^(?:[a-z0-9]-)+[a-z0-9]+$/i.test(local)) {
+        cleanLocal = local.replace(/-/g, '').toLowerCase()
+      }
+      return `${cleanLocal}@${domain.toLowerCase()}.${tldLower}`
     },
   )
 
