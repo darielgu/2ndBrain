@@ -1,4 +1,10 @@
 import type { Person, Episode } from './types'
+import {
+  upsertPerson,
+  upsertEpisode,
+  listPeopleDb,
+  listEpisodesDb,
+} from './db'
 
 const NIA_BASE_URL = process.env.NIA_BASE_URL || 'https://apigcp.trynia.ai/v2'
 const NIA_API_KEY = process.env.NIA_API_KEY || ''
@@ -297,6 +303,12 @@ export async function savePersonContext(person: Person): Promise<string> {
       tags: ['person', merged.person_id],
     })
 
+    try {
+      upsertPerson({ ...merged, nia_context_id: existing.context_id })
+    } catch (err) {
+      console.error('sqlite upsertPerson (merge) failed:', err)
+    }
+
     return existing.context_id
   }
 
@@ -321,6 +333,13 @@ export async function savePersonContext(person: Person): Promise<string> {
       metadata: personToMetadata(person),
     }),
   })
+
+  try {
+    upsertPerson({ ...person, nia_context_id: data.id })
+  } catch (err) {
+    console.error('sqlite upsertPerson (create) failed:', err)
+  }
+
   return data.id
 }
 
@@ -368,6 +387,13 @@ export async function saveEpisodeContext(episode: Episode): Promise<string> {
       metadata: episodeToMetadata(episode),
     }),
   })
+
+  try {
+    upsertEpisode({ ...episode, nia_context_id: data.id })
+  } catch (err) {
+    console.error('sqlite upsertEpisode failed:', err)
+  }
+
   return data.id
 }
 
@@ -429,68 +455,15 @@ export async function listContexts(params: {
   return items as NiaSearchResult[]
 }
 
-// --- List all people stored by secondbrain ---
-// Filters by tags + agent_source only. We intentionally don't pass
-// memory_type because Nia's search stack has historically returned
-// unreliable values for that field; the tags + metadata shape is
-// deterministic and sufficient.
-//
-// Also deduplicates by person_id in memory. Duplicates can exist in Nia
-// when the save-time dedupe lookup misses (e.g. during a race between
-// two concurrent sessions), and React needs unique keys to render. The
-// record with the most recent last_seen wins.
+// SQLite is the truth for structured reads. Nia is still written to via
+// savePersonContext/saveEpisodeContext so semantic search stays current —
+// but list queries (dashboard, people, history) no longer round-trip to Nia.
 export async function listPeople(limit = 100): Promise<Person[]> {
-  const results = await listContexts({
-    tags: ['person'],
-    agent_source: 'secondbrain',
-    limit,
-  })
-
-  const parsed = results
-    .map((r) => {
-      const meta = r.metadata as Record<string, unknown> | null | undefined
-      if (!meta || typeof meta.episode_id === 'string') return null
-      return metadataToPerson(meta, typeof r.id === 'string' ? r.id : undefined)
-    })
-    .filter((p): p is Person => p !== null)
-
-  const byId = new Map<string, Person>()
-  for (const person of parsed) {
-    const existing = byId.get(person.person_id)
-    if (!existing) {
-      byId.set(person.person_id, person)
-      continue
-    }
-    // Keep the entry with the most recent last_seen. Empty last_seen loses.
-    if ((person.last_seen || '') > (existing.last_seen || '')) {
-      byId.set(person.person_id, person)
-    }
-  }
-
-  return Array.from(byId.values()).sort((a, b) =>
-    (b.last_seen || '').localeCompare(a.last_seen || '')
-  )
+  return listPeopleDb(limit)
 }
 
-// --- List all episodes stored by secondbrain ---
 export async function listEpisodes(limit = 100): Promise<Episode[]> {
-  const results = await listContexts({
-    tags: ['episode'],
-    agent_source: 'secondbrain',
-    limit,
-  })
-
-  return results
-    .map((r) => {
-      const meta = r.metadata as Record<string, unknown> | null | undefined
-      if (!meta || typeof meta.episode_id !== 'string') return null
-      return metadataToEpisode(
-        meta,
-        typeof r.id === 'string' ? r.id : undefined
-      )
-    })
-    .filter((e): e is Episode => e !== null)
-    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+  return listEpisodesDb(limit)
 }
 
 // --- Get a single context by ID ---
