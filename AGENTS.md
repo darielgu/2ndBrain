@@ -410,11 +410,21 @@ Do:
 - ship fast
 - use mocks if needed
 - optimize demo
+- keep features modular and isolated to reduce merge conflicts
+- wire new modules through main route entry points (for example `frontend/app/page.tsx` and dashboard page routes) instead of editing unrelated surfaces
 
 Don’t:
 
 - overengineer
 - block on hardware
+
+### Hackathon collaboration note
+
+We are building this with multiple people in a fast-paced hackathon.
+
+- Prefer small, composable components and focused files
+- Minimize edits to shared hot files unless required
+- Integrate via clear page-level entry points so parallel work can land cleanly
 
 ---
 

@@ -43,8 +43,8 @@ export function HeroHeader() {
             <Button variant="ghost" className="text-sm lowercase text-muted-foreground hover:text-foreground">
               sign in
             </Button>
-            <Button className="bg-foreground text-background hover:bg-foreground/90 lowercase text-sm">
-              get started
+            <Button asChild className="bg-foreground text-background hover:bg-foreground/90 lowercase text-sm">
+              <a href="/onboarding">get started</a>
             </Button>
           </div>
         </div>
