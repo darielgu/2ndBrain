@@ -11,6 +11,7 @@ import {
   UserRound,
 } from 'lucide-react'
 import { PromptInputBox } from '@/components/ui/ai-prompt-box'
+import { SessionPanel } from '@/components/session-panel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -87,6 +88,9 @@ const activeLoops = [
 
 export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sessionMode, setSessionMode] = useState<
+    'idle' | 'webcam' | 'screen'
+  >('idle')
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -218,64 +222,38 @@ export default function DashboardPage() {
               </div>
 
               <TabsContent value="session" className="space-y-4">
-                <Card className="rounded-none border-border bg-background/40 shadow-none">
-                  <CardHeader className="gap-1 px-4 py-4">
-                    <CardTitle className="flex items-center gap-2 text-sm lowercase">
-                      <Camera className="h-4 w-4 text-muted-foreground" />
-                      live recognition
-                    </CardTitle>
-                    <CardDescription className="text-xs lowercase">
-                      camera feed placeholder. confidence fallback enabled.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-4">
-                    <div className="grid gap-2 md:grid-cols-2">
-                      <div className="border border-border bg-secondary/30 p-3">
-                        <p className="text-xs lowercase text-muted-foreground">
-                          optimistic identity
-                        </p>
-                        <p className="mt-1 text-sm lowercase">maya</p>
-                      </div>
-                      <div className="border border-border bg-secondary/30 p-3">
-                        <p className="text-xs lowercase text-muted-foreground">
-                          candidates if uncertain
-                        </p>
-                        <p className="mt-1 text-sm lowercase">
-                          maya / sara / elijah
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                <SessionPanel onModeChange={setSessionMode} />
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Card className="rounded-none border-border bg-background/40 shadow-none">
-                    <CardHeader className="gap-1 px-4 py-4">
-                      <CardTitle className="flex items-center gap-2 text-sm lowercase">
-                        <UserRound className="h-4 w-4 text-muted-foreground" />
-                        context card
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2 px-4 pb-4 text-sm lowercase">
-                      <p>name: maya</p>
-                      <p>where met: hackathon</p>
-                      <p>last convo: voice infra demo</p>
-                      <p>open loop: send repo</p>
-                    </CardContent>
-                  </Card>
+                {sessionMode !== 'idle' && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Card className="rounded-none border-border bg-background/40 shadow-none">
+                      <CardHeader className="gap-1 px-4 py-4">
+                        <CardTitle className="flex items-center gap-2 text-sm lowercase">
+                          <UserRound className="h-4 w-4 text-muted-foreground" />
+                          context card
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2 px-4 pb-4 text-sm lowercase">
+                        <p>name: maya</p>
+                        <p>where met: hackathon</p>
+                        <p>last convo: voice infra demo</p>
+                        <p>open loop: send repo</p>
+                      </CardContent>
+                    </Card>
 
-                  <Card className="rounded-none border-border bg-background/40 shadow-none">
-                    <CardHeader className="gap-1 px-4 py-4">
-                      <CardTitle className="flex items-center gap-2 text-sm lowercase">
-                        <Clock3 className="h-4 w-4 text-muted-foreground" />
-                        open loop
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="px-4 pb-4 text-sm lowercase">
-                      you promised maya the repo. follow-up pending.
-                    </CardContent>
-                  </Card>
-                </div>
+                    <Card className="rounded-none border-border bg-background/40 shadow-none">
+                      <CardHeader className="gap-1 px-4 py-4">
+                        <CardTitle className="flex items-center gap-2 text-sm lowercase">
+                          <Clock3 className="h-4 w-4 text-muted-foreground" />
+                          open loop
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-4 pb-4 text-sm lowercase">
+                        you promised maya the repo. follow-up pending.
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="chat" className="space-y-4">
