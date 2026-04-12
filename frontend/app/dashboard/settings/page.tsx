@@ -21,7 +21,7 @@ export default function SettingsPage() {
           </article>
           <article className="border border-border bg-background/40 p-3">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">camera identity confidence</p>
-            <p className="mt-1 text-sm lowercase">0.74 threshold</p>
+            <p className="mt-1 text-sm lowercase">0.50 threshold</p>
           </article>
           <article className="border border-border bg-background/40 p-3">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">sync cadence</p>

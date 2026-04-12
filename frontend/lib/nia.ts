@@ -1,31 +1,87 @@
 import type { Person, Episode } from './types'
 import {
-  upsertPerson,
-  upsertEpisode,
-  listPeopleDb,
   listEpisodesDb,
+  listPeopleDb,
+  upsertEpisode,
+  upsertPerson,
   getPerson,
 } from './db'
 
 const NIA_BASE_URL = process.env.NIA_BASE_URL || 'https://apigcp.trynia.ai/v2'
 const NIA_API_KEY = process.env.NIA_API_KEY || ''
+const NIA_TIMEOUT_MS = Number(process.env.NIA_TIMEOUT_MS || 25_000)
+const NIA_MAX_RETRIES = Number(process.env.NIA_MAX_RETRIES || 2)
+const NIA_RETRY_BASE_MS = Number(process.env.NIA_RETRY_BASE_MS || 350)
+
+export interface NiaUpsertResult {
+  id: string
+  action: 'created' | 'updated'
+}
+
+const NIA_MIN_CONTENT_CHARS = 50
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRetriableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
+function isRetriableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    message.includes('fetch failed') ||
+    message.includes('UND_ERR_HEADERS_TIMEOUT') ||
+    message.includes('timed out') ||
+    message.includes('ECONNRESET') ||
+    message.includes('ETIMEDOUT')
+  )
+}
 
 async function niaFetch(path: string, options: RequestInit = {}) {
-  const res = await fetch(`${NIA_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${NIA_API_KEY}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  })
+  let lastError: Error | null = null
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`nia ${options.method || 'GET'} ${path} failed (${res.status}): ${body}`)
+  for (let attempt = 0; attempt <= NIA_MAX_RETRIES; attempt++) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), NIA_TIMEOUT_MS)
+    try {
+      const res = await fetch(`${NIA_BASE_URL}${path}`, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${NIA_API_KEY}`,
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+        signal: controller.signal,
+      })
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        const err = new Error(`nia ${options.method || 'GET'} ${path} failed (${res.status}): ${body}`)
+        if (!isRetriableStatus(res.status) || attempt === NIA_MAX_RETRIES) {
+          throw err
+        }
+        lastError = err
+      } else {
+        return res.json()
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err))
+      if (!isRetriableError(error) || attempt === NIA_MAX_RETRIES) {
+        throw error
+      }
+      lastError = error
+    } finally {
+      clearTimeout(timeoutId)
+    }
+
+    const jitter = Math.floor(Math.random() * 80)
+    const backoff = NIA_RETRY_BASE_MS * Math.pow(2, attempt) + jitter
+    await wait(backoff)
   }
 
-  return res.json()
+  throw lastError || new Error(`nia ${options.method || 'GET'} ${path} failed`)
 }
 
 // --- Prose builders (deterministic regeneration from structured metadata) ---
@@ -101,17 +157,28 @@ export function buildEpisodeProse(episode: Episode): string {
   return sentences.join(' ')
 }
 
+function ensureMinContent(content: string, fallbackSentences: string[]): string {
+  const trimmed = content.trim()
+  if (trimmed.length >= NIA_MIN_CONTENT_CHARS) return trimmed
+
+  const extra = fallbackSentences
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+
+  const joined = [trimmed, extra].filter(Boolean).join(' ').trim()
+  if (joined.length >= NIA_MIN_CONTENT_CHARS) return joined
+
+  return `${joined} This memory entry was captured by SecondBrain and will be enriched as more interactions are recorded.`
+    .trim()
+}
+
 // --- Serialization helpers (metadata <-> Person/Episode) ---
 
 function personToMetadata(person: Person): Record<string, unknown> {
-  // Strip nia_context_id and face_image — face thumbnails are base64 blobs
-  // that bloat Nia metadata without being useful to semantic search. Kept
-  // in sqlite only.
-  const {
-    nia_context_id: _omit1,
-    face_image: _omit2,
-    ...rest
-  } = person
+  // Strip nia_context_id — that's the ID of the context, not part of the payload
+  const { nia_context_id: _omit, ...rest } = person
   return rest as unknown as Record<string, unknown>
 }
 
@@ -151,55 +218,26 @@ function metadataToEpisode(
   if (!meta || typeof meta !== 'object') return null
   const episode_id = typeof meta.episode_id === 'string' ? meta.episode_id : ''
   if (!episode_id) return null
-  const rawSource = typeof meta.source === 'string' ? meta.source : 'screen'
-  const source: Episode['source'] =
-    rawSource === 'webcam' ? 'webcam' : 'screen'
+
   return {
     episode_id,
     person_ids: Array.isArray(meta.person_ids)
-      ? (meta.person_ids as unknown[]).filter(
-          (v): v is string => typeof v === 'string'
-        )
+      ? (meta.person_ids as string[]).filter((v) => typeof v === 'string')
       : [],
     topics: Array.isArray(meta.topics)
-      ? (meta.topics as unknown[]).filter(
-          (v): v is string => typeof v === 'string'
-        )
+      ? (meta.topics as string[]).filter((v) => typeof v === 'string')
       : [],
     promises: Array.isArray(meta.promises)
-      ? (meta.promises as unknown[]).filter(
-          (v): v is string => typeof v === 'string'
-        )
+      ? (meta.promises as string[]).filter((v) => typeof v === 'string')
       : [],
     next_actions: Array.isArray(meta.next_actions)
-      ? (meta.next_actions as unknown[]).filter(
-          (v): v is string => typeof v === 'string'
-        )
+      ? (meta.next_actions as string[]).filter((v) => typeof v === 'string')
       : [],
-    timestamp: typeof meta.timestamp === 'string' ? meta.timestamp : '',
-    source,
+    timestamp: typeof meta.timestamp === 'string' ? meta.timestamp : new Date().toISOString(),
+    source: meta.source === 'screen' ? 'screen' : 'webcam',
     prose: typeof meta.prose === 'string' ? meta.prose : undefined,
     nia_context_id: context_id,
   }
-}
-
-// --- Length guards ---
-// Nia's save endpoint enforces: title 1-200, summary 10-1000, content ≥50.
-// For edge cases (empty prose, minimal metadata) we append structured
-// context until the minimum is met so the request doesn't 422.
-function ensureMinLength(base: string, min: number, filler: string): string {
-  const trimmed = base.trim()
-  if (trimmed.length >= min) return trimmed
-  const combined = trimmed ? `${trimmed} ${filler}` : filler
-  if (combined.length >= min) return combined
-  // Pathological case — pad with the filler repeated. Deterministic.
-  let result = combined
-  while (result.length < min) result += ` ${filler}`
-  return result
-}
-
-function truncate(s: string, max: number): string {
-  return s.length <= max ? s : s.slice(0, max)
 }
 
 // --- Dedupe lookup: find an existing person context by exact person_id ---
@@ -207,41 +245,24 @@ function truncate(s: string, max: number): string {
 export async function findPersonByPersonId(
   person_id: string
 ): Promise<{ context_id: string; person: Person } | null> {
-  // Tag-based list is deterministic: ['person', person_id] narrows to at
-  // most one context. Falls back to semantic search if the list returns
-  // nothing — covers records created before the per-id tag convention.
-  try {
-    // Single-tag filter only. Nia's comma-separated tag filter semantics
-    // aren't documented clearly, and passing two tags silently missed
-    // existing records — causing dedupe to fail and create duplicates.
-    // A single 'person' tag + post-filter by metadata.person_id is
-    // deterministic regardless of the server's tag-filter interpretation.
-    const viaList = await listContexts({
-      tags: ['person'],
-      agent_source: 'secondbrain',
-      limit: 100,
-    })
-    const listMatch = viaList.find((r) => {
-      const meta = r.metadata as Record<string, unknown> | null
-      if (!meta || typeof meta !== 'object') return false
-      if (typeof meta.episode_id === 'string') return false
-      return meta.person_id === person_id
-    })
-    if (listMatch) {
-      const person = metadataToPerson(
-        listMatch.metadata as Record<string, unknown>,
-        listMatch.id as string
-      )
-      if (person) return { context_id: listMatch.id as string, person }
-    }
+  // Semantic search by name (derived from person_id) casts a wide net.
+  // We then filter results in code for exact metadata.person_id equality.
+  //
+  // NOTE: We do NOT filter by `memory_type === 'fact'` here. Nia's
+  // semantic-search endpoint returns `memory_type: "episodic"` for ALL
+  // results regardless of how they were actually saved (verified against
+  // the GET /contexts/{id} endpoint, which returns the real value). We
+  // instead rely on tags + the presence of `metadata.person_id` + the
+  // absence of `metadata.episode_id` to identify person records.
+  const nameQuery = person_id.replace(/_/g, ' ')
 
-    // Fallback: semantic search then filter. Wider net, less reliable.
-    const nameQuery = person_id.replace(/_/g, ' ')
+  try {
     const results = await searchMemory(nameQuery, 50)
     const match = results.find((r) => {
       if (!Array.isArray(r.tags) || !r.tags.includes('person')) return false
       const meta = r.metadata as Record<string, unknown> | null
       if (!meta || typeof meta !== 'object') return false
+      // Person records have person_id but no episode_id
       if (typeof meta.episode_id === 'string') return false
       return meta.person_id === person_id
     })
@@ -249,6 +270,26 @@ export async function findPersonByPersonId(
     const person = metadataToPerson(match.metadata, match.id)
     if (!person) return null
     return { context_id: match.id, person }
+  } catch {
+    return null
+  }
+}
+
+export async function findEpisodeByEpisodeId(
+  episode_id: string
+): Promise<{ context_id: string; episode: Episode } | null> {
+  try {
+    const results = await searchMemory(episode_id, 50)
+    const match = results.find((r) => {
+      if (!Array.isArray(r.tags) || !r.tags.includes('episode')) return false
+      const meta = r.metadata as Record<string, unknown> | null
+      if (!meta || typeof meta !== 'object') return false
+      return meta.episode_id === episode_id
+    })
+    if (!match) return null
+    const episode = metadataToEpisode(match.metadata, match.id)
+    if (!episode) return null
+    return { context_id: match.id, episode }
   } catch {
     return null
   }
@@ -271,16 +312,90 @@ export async function findPersonByPersonId(
 // After merging, the content prose is regenerated deterministically via
 // buildPersonProse() so that Nia's vector index stays consistent with the
 // merged metadata.
+// Nia-only upsert (without touching sqlite). Exposed so callers who already
+// own the sqlite write can reuse the dedupe + merge + ensureMinContent logic.
+export async function upsertPersonContext(person: Person): Promise<NiaUpsertResult> {
+  const existing = await findPersonByPersonId(person.person_id)
+
+  if (existing) {
+    const merged: Person = {
+      person_id: person.person_id,
+      name: existing.person.name || person.name, // keep first encounter name
+      where_met: existing.person.where_met || person.where_met, // keep first encounter
+      summary: person.summary || existing.person.summary, // prefer newer non-empty
+      open_loops: Array.from(
+        new Set([
+          ...(existing.person.open_loops || []),
+          ...(person.open_loops || []),
+        ])
+      ),
+      last_seen: person.last_seen || existing.person.last_seen, // newer wins
+      notes: [
+        ...(existing.person.notes || []),
+        ...(person.notes || []),
+      ],
+      prose: person.prose || existing.person.prose,
+    }
+
+    const content = ensureMinContent(buildPersonProse(merged), [
+      `${merged.name} was met at ${merged.where_met || 'an unknown place'}.`,
+      merged.summary
+        ? `Known context: ${merged.summary}.`
+        : 'Additional context is not yet available.',
+      merged.open_loops?.length
+        ? `Open loops: ${merged.open_loops.join(', ')}.`
+        : 'No open loops recorded yet.',
+    ])
+    const shortSummary = `${merged.name} — met at ${merged.where_met}. ${merged.summary}`.trim()
+
+    await updateContext(existing.context_id, {
+      title: merged.name,
+      summary: shortSummary,
+      content,
+      metadata: personToMetadata(merged),
+      tags: ['person', merged.person_id],
+    })
+
+    return { id: existing.context_id, action: 'updated' }
+  }
+
+  // No existing match — create a new context
+  const content = ensureMinContent(person.prose || buildPersonProse(person), [
+    `${person.name} was met at ${person.where_met || 'an unknown place'}.`,
+    person.summary
+      ? `Known context: ${person.summary}.`
+      : 'Additional context is not yet available.',
+    person.open_loops?.length
+      ? `Open loops: ${person.open_loops.join(', ')}.`
+      : 'No open loops recorded yet.',
+  ])
+  const shortSummary = `${person.name} — met at ${person.where_met}. ${person.summary}`.trim()
+
+  const data = await niaFetch('/contexts', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: person.name,
+      summary: shortSummary,
+      content,
+      agent_source: 'secondbrain',
+      memory_type: 'fact',
+      tags: ['person', person.person_id],
+      metadata: personToMetadata(person),
+    }),
+  })
+  return { id: data.id as string, action: 'created' }
+}
+
+// Sqlite-first save: the /people tab updates immediately even when nia is
+// slow or unreachable. Merges against the local person record so repeated
+// encounters accumulate rather than overwrite, then does a best-effort nia
+// sync in the background to keep semantic search current.
 export async function savePersonContext(person: Person): Promise<string> {
-  // --- step 1: local sqlite is authoritative for the UI. always write it ---
-  // first so the /people tab reflects the session even if nia is slow or
-  // unreachable. merge against whatever we already have locally so repeated
-  // encounters accumulate instead of overwrite.
   const existingLocal = getPerson(person.person_id)
   const merged: Person = existingLocal
     ? {
         person_id: person.person_id,
-        name: existingLocal.name || person.name, // keep first encounter name
+        name: existingLocal.name || person.name,
         where_met: existingLocal.where_met || person.where_met,
         summary: person.summary || existingLocal.summary,
         open_loops: Array.from(
@@ -292,10 +407,8 @@ export async function savePersonContext(person: Person): Promise<string> {
         last_seen: person.last_seen || existingLocal.last_seen,
         notes: [...(existingLocal.notes || []), ...(person.notes || [])],
         prose: person.prose || existingLocal.prose,
-        // Preserve first-captured face unless a new crop is supplied.
         face_image: person.face_image || existingLocal.face_image,
         nia_context_id: existingLocal.nia_context_id,
-        // Manual enrichment fields carry forward via COALESCE in upsertPerson.
         email: person.email || existingLocal.email,
         job_title: person.job_title || existingLocal.job_title,
         company: person.company || existingLocal.company,
@@ -312,104 +425,58 @@ export async function savePersonContext(person: Person): Promise<string> {
     console.error('sqlite upsertPerson failed:', err)
   }
 
-  // --- step 2: best-effort nia sync. failures are logged, not thrown ---
-  // the user already has the person locally; nia gives us semantic search.
   try {
-    const existing = await findPersonByPersonId(person.person_id)
-
-    const rawContent = buildPersonProse(merged)
-    const rawSummary = `${merged.name} — met at ${merged.where_met}. ${merged.summary}`.trim()
-    const { title, summary, content } = buildPersonFields(
-      merged,
-      rawSummary,
-      rawContent,
-    )
-
-    if (existing) {
-      await updateContext(existing.context_id, {
-        title,
-        summary,
-        content,
-        metadata: personToMetadata(merged),
-        tags: ['person', merged.person_id],
-      })
-      // Back-fill nia_context_id into sqlite if it wasn't there yet.
-      if (merged.nia_context_id !== existing.context_id) {
-        try {
-          upsertPerson({ ...merged, nia_context_id: existing.context_id })
-        } catch (err) {
-          console.error('sqlite back-fill nia_context_id failed:', err)
-        }
+    const result = await upsertPersonContext(merged)
+    if (merged.nia_context_id !== result.id) {
+      try {
+        upsertPerson({ ...merged, nia_context_id: result.id })
+      } catch (err) {
+        console.error('sqlite back-fill nia_context_id failed:', err)
       }
-      return existing.context_id
     }
-
-    const data = await niaFetch('/contexts', {
-      method: 'POST',
-      body: JSON.stringify({
-        title,
-        summary,
-        content,
-        agent_source: 'secondbrain',
-        memory_type: 'fact',
-        tags: ['person', merged.person_id],
-        metadata: personToMetadata(merged),
-      }),
-    })
-
-    try {
-      upsertPerson({ ...merged, nia_context_id: data.id })
-    } catch (err) {
-      console.error('sqlite back-fill nia_context_id failed:', err)
-    }
-
-    return data.id
+    return result.id
   } catch (err) {
     console.error(
-      `nia sync failed for ${merged.person_id} — sqlite is still updated:`,
+      `nia sync failed for ${merged.person_id} — sqlite still updated:`,
       err,
     )
     return merged.nia_context_id || ''
   }
 }
 
-function buildPersonFields(
-  person: Person,
-  rawSummary: string,
-  rawContent: string
-): { title: string; summary: string; content: string } {
-  const title = truncate(person.name || person.person_id || 'untitled', 200)
-
-  const summaryFiller = `Profile of ${person.name || person.person_id}, first encountered at ${person.where_met || 'an unknown location'}.`
-  const summary = truncate(ensureMinLength(rawSummary, 10, summaryFiller), 1000)
-
-  const contentFiller = `Person profile for ${person.name || person.person_id} (id: ${person.person_id}). First encountered at ${person.where_met || 'an unknown location'}. ${person.summary ? `Summary: ${person.summary}.` : ''} ${person.open_loops.length > 0 ? `Open loops: ${person.open_loops.join('; ')}.` : 'No open loops recorded yet.'}`
-  const content = ensureMinLength(rawContent, 50, contentFiller)
-
-  return { title, summary, content }
-}
-
-// --- Save an episode as an "episodic" context (no dedupe) ---
-export async function saveEpisodeContext(episode: Episode): Promise<string> {
-  const rawContent = episode.prose || buildEpisodeProse(episode)
+// --- Save an episode as an "episodic" context ---
+// Uses episode_id metadata for idempotency (update existing when found).
+export async function upsertEpisodeContext(episode: Episode): Promise<NiaUpsertResult> {
+  const existing = await findEpisodeByEpisodeId(episode.episode_id)
+  const content = ensureMinContent(episode.prose || buildEpisodeProse(episode), [
+    `Episode captured on ${formatDate(episode.timestamp)} from ${episode.source}.`,
+    episode.topics.length
+      ? `Topics: ${episode.topics.join(', ')}.`
+      : 'Topics were not extracted.',
+  ])
   const topicStr = episode.topics.join(', ')
   const promiseStr =
     episode.promises.length > 0
       ? ` promises: ${episode.promises.join('; ')}`
       : ''
-  const rawSummary = `episode with ${episode.person_ids.join(', ') || 'unknown participants'} about ${topicStr || 'general conversation'}.${promiseStr}`
+  const shortSummary = `episode with ${episode.person_ids.join(', ')} about ${topicStr}.${promiseStr}`
 
-  const title = truncate(topicStr || 'untitled episode', 200)
-  const summaryFiller = `Recorded ${episode.source} session on ${episode.timestamp || 'unknown date'}.`
-  const summary = truncate(ensureMinLength(rawSummary, 10, summaryFiller), 1000)
-  const contentFiller = `Episode ${episode.episode_id} captured via ${episode.source}. Participants: ${episode.person_ids.join(', ') || 'unknown'}. Topics: ${topicStr || 'not identified'}. Promises: ${episode.promises.join('; ') || 'none'}. Next actions: ${episode.next_actions.join('; ') || 'none'}.`
-  const content = ensureMinLength(rawContent, 50, contentFiller)
+  if (existing) {
+    await updateContext(existing.context_id, {
+      title: topicStr || 'untitled episode',
+      summary: shortSummary,
+      content,
+      tags: ['episode', ...episode.person_ids],
+      metadata: episodeToMetadata(episode),
+    })
+    return { id: existing.context_id, action: 'updated' }
+  }
 
   const data = await niaFetch('/contexts', {
     method: 'POST',
     body: JSON.stringify({
-      title,
-      summary,
+      title: topicStr || 'untitled episode',
+      summary: shortSummary,
       content,
       agent_source: 'secondbrain',
       memory_type: 'episodic',
@@ -417,14 +484,17 @@ export async function saveEpisodeContext(episode: Episode): Promise<string> {
       metadata: episodeToMetadata(episode),
     }),
   })
+  return { id: data.id as string, action: 'created' }
+}
 
+export async function saveEpisodeContext(episode: Episode): Promise<string> {
+  const result = await upsertEpisodeContext(episode)
   try {
-    upsertEpisode({ ...episode, nia_context_id: data.id })
+    upsertEpisode({ ...episode, nia_context_id: result.id })
   } catch (err) {
     console.error('sqlite upsertEpisode failed:', err)
   }
-
-  return data.id
+  return result.id
 }
 
 // --- Update an existing context ---
@@ -459,46 +529,58 @@ export async function searchMemory(
   return data.results || []
 }
 
-// --- List contexts with server-side filters ---
-// GET /contexts?tags=&agent_source=&memory_type=&limit=&offset=
-// Deterministic alternative to semantic search for listing by tag/type.
-export async function listContexts(params: {
-  tags?: string[]
-  agent_source?: string
-  memory_type?: 'scratchpad' | 'episodic' | 'fact' | 'procedural'
-  limit?: number
-  offset?: number
-}): Promise<NiaSearchResult[]> {
-  const query = new URLSearchParams()
-  if (params.tags && params.tags.length > 0) {
-    query.set('tags', params.tags.join(','))
-  }
-  if (params.agent_source) query.set('agent_source', params.agent_source)
-  if (params.memory_type) query.set('memory_type', params.memory_type)
-  query.set('limit', String(Math.min(params.limit ?? 100, 100)))
-  query.set('offset', String(params.offset ?? 0))
-
-  const data = await niaFetch(`/contexts?${query}`)
-  // Spec returns both `items` (new) and `contexts` (legacy) — prefer items.
-  const items: unknown = data.items || data.contexts || []
-  if (!Array.isArray(items)) return []
-  return items as NiaSearchResult[]
+export function filterResultsByPersonIds(
+  results: NiaSearchResult[],
+  personIds: string[]
+): NiaSearchResult[] {
+  if (personIds.length === 0) return results
+  const set = new Set(personIds)
+  return results.filter((result) => {
+    const meta = result.metadata as Record<string, unknown>
+    if (typeof meta.person_id === 'string' && set.has(meta.person_id)) return true
+    if (Array.isArray(meta.person_ids)) {
+      return meta.person_ids.some((id) => set.has(String(id)))
+    }
+    return false
+  })
 }
 
-// SQLite is the truth for structured reads. Nia is still written to via
-// savePersonContext/saveEpisodeContext so semantic search stays current —
-// but list queries (dashboard, people, history) no longer round-trip to Nia.
+export function bestEpisodeSummaryForPerson(
+  results: NiaSearchResult[],
+  personId: string
+): string {
+  const byRecency = (result: NiaSearchResult): string => {
+    const updated =
+      typeof result.updated_at === 'string' ? result.updated_at : ''
+    const created =
+      typeof result.created_at === 'string' ? result.created_at : ''
+    return updated || created || ''
+  }
+
+  const episode = results
+    .filter((result) => {
+      if (!Array.isArray(result.tags) || !result.tags.includes('episode')) return false
+      const meta = result.metadata as Record<string, unknown>
+      const personIds = Array.isArray(meta.person_ids)
+        ? meta.person_ids.map((value) => String(value))
+        : []
+      return personIds.includes(personId)
+    })
+    .sort((a, b) => byRecency(b).localeCompare(byRecency(a)))[0]
+  return episode?.summary || ''
+}
+
+// --- Get a single context by ID ---
+export async function getContext(id: string) {
+  return niaFetch(`/contexts/${id}`)
+}
+
 export async function listPeople(limit = 100): Promise<Person[]> {
   return listPeopleDb(limit)
 }
 
 export async function listEpisodes(limit = 100): Promise<Episode[]> {
   return listEpisodesDb(limit)
-}
-
-// --- Get a single context by ID ---
-export async function getContext(id: string) {
-  return niaFetch(`/contexts/${id}`)
 }
 
 // --- Types for Nia responses ---
