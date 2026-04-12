@@ -1,108 +1,22 @@
 import OpenAI from 'openai'
-import type {
-  BBox,
-  ExtractionResult,
-  FrameAnalysis,
-  TranscriptSegment,
-} from './types'
+import type { BBox, ExtractionResult, FrameAnalysis } from './types'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
-// --- Transcribe audio using gpt-4o-transcribe ---
-// Domain vocabulary helps disambiguate proper nouns and jargon.
-const TRANSCRIBE_BASE_PROMPT =
-  'conversation for secondbrain, a real-world memory layer powered by nia. speakers may mention: secondbrain, nia, episodes, promises, open loops, next actions, person, people, recognition.'
-
-export async function transcribeAudio(
-  audioFile: File,
-  priorContext?: string
-): Promise<string> {
-  // Rolling context window: the tail of the transcript so far gives the
-  // model cross-chunk continuity, which whisper otherwise lacks.
-  const prompt = priorContext
-    ? `${TRANSCRIBE_BASE_PROMPT} prior: ${priorContext.slice(-400)}`
-    : TRANSCRIBE_BASE_PROMPT
-
-  const response = await openai.audio.transcriptions.create({
-    model: 'gpt-4o-transcribe',
-    file: audioFile,
-    language: 'en',
-    prompt,
-  })
-  return response.text
+function getOpenAIClient(): OpenAI | null {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) return null
+  return new OpenAI({ apiKey })
 }
 
-// --- Split transcribed text into speaker turns ---
-// gpt-4o-transcribe doesn't do diarization, so we do a cheap post-process
-// pass with gpt-4o-mini to approximate speaker turns from linguistic cues
-// (pronouns, question/answer flow, topic shifts). Prior context lets the
-// labels stay consistent across 30s chunks.
+// --- Transcribe audio using Whisper ---
+export async function transcribeAudio(audioFile: File): Promise<string> {
+  const openai = getOpenAIClient()
+  if (!openai) return ''
 
-const SEGMENT_SYSTEM_PROMPT = `you split transcribed conversation text into speaker turns. you never invent words — only segment what's there.
-
-rules:
-- output json: { "segments": [{ "speaker": "person1" | "person2" | ..., "text": "..." }] }
-- labels are always the literal string "person" + a 1-indexed number (person1, person2, person3). never use real names.
-- infer speaker shifts from linguistic cues: question/answer pairing, first/second-person switches, tone shifts, direct address.
-- if the text is one continuous monologue, return a single segment.
-- reuse labels from prior_context when the same speaker continues. if prior_context ends on person2 and this chunk starts with an answer to a question person2 asked, it is likely person1 responding.
-- never drop words — concatenating every segment's text should reproduce the input (whitespace-normalized).
-- precision over cleverness. if unsure, keep it as one segment under the most-recent label.`
-
-export async function segmentSpeakers(
-  text: string,
-  priorContext?: {
-    known_speakers: string[]
-    last_segment?: TranscriptSegment
-  }
-): Promise<TranscriptSegment[]> {
-  const trimmed = text.trim()
-  if (!trimmed) return []
-
-  const contextBlock = priorContext
-    ? `prior_context: known_speakers=${JSON.stringify(
-        priorContext.known_speakers
-      )}${
-        priorContext.last_segment
-          ? ` last_segment=${JSON.stringify(priorContext.last_segment)}`
-          : ''
-      }`
-    : 'prior_context: none (this is the first chunk)'
-
-  try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SEGMENT_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: `${contextBlock}\n\nsplit this chunk into speaker turns:\n\n${trimmed}`,
-        },
-      ],
-      temperature: 0,
-    })
-
-    const content = response.choices[0]?.message?.content
-    if (!content) return [{ speaker: 'person1', text: trimmed }]
-
-    const parsed = JSON.parse(content) as {
-      segments?: TranscriptSegment[]
-    }
-    const segments = (parsed.segments || [])
-      .map((s) => ({
-        speaker: typeof s.speaker === 'string' ? s.speaker : 'person1',
-        text: typeof s.text === 'string' ? s.text.trim() : '',
-      }))
-      .filter((s) => s.text.length > 0)
-
-    return segments.length > 0
-      ? segments
-      : [{ speaker: 'person1', text: trimmed }]
-  } catch (err) {
-    console.error('speaker segmentation failed:', err)
-    return [{ speaker: 'person1', text: trimmed }]
-  }
+  const response = await openai.audio.transcriptions.create({
+    model: 'whisper-1',
+    file: audioFile,
+  })
+  return response.text
 }
 
 // --- Extract structured memory from transcript using GPT-4o ---
@@ -114,12 +28,16 @@ rules (strict):
 - people: max 3. include name, brief role/context, and a prose_summary (see below)
 - topics: 1-3 key topics discussed
 - promises: ONLY explicit, verbatim commitments. if no promise was made, return an empty array. do NOT infer or assume promises
-- next_actions: max 3 concrete next steps mentioned
+- next_actions: max 3 concrete follow-ups or next steps mentioned
 - prefer precision over recall — "boring but correct" over "smart but wrong"
 
 prose writing:
 - prose_summary (per person): 2-4 sentences describing this specific person based ONLY on what the transcript reveals. include their role, what they work on, any relevant facts, and what was promised to or by them. write naturally, as if describing them to a friend. use their name. do NOT invent details.
 - episode_prose (whole conversation): 3-5 sentences describing the interaction. mention who was there, what was discussed, any promises made, and next steps. write naturally. do NOT invent details.
+
+important:
+- if transcript is short/noisy, still provide the best non-empty episode_prose you can from available evidence.
+- if nothing concrete is available for a field, return empty arrays (not null) and keep prose conservative.
 
 return valid json matching this exact schema:
 {
@@ -139,72 +57,68 @@ return valid json matching this exact schema:
 export async function extractMemory(
   transcript: string
 ): Promise<ExtractionResult> {
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: `extract structured memory from this transcript:\n\n${transcript}`,
-      },
-    ],
-    temperature: 0.1,
-  })
-
-  const content = response.choices[0]?.message?.content
-  if (!content) {
-    return {
-      people: [],
-      topics: ['unknown'],
-      promises: [],
-      next_actions: [],
-      episode_prose: '',
-    }
+  const fallback: ExtractionResult = {
+    people: [],
+    topics: ['unknown'],
+    promises: [],
+    next_actions: [],
+    episode_prose: '',
   }
 
-  const parsed = JSON.parse(content) as ExtractionResult
+  const openai = getOpenAIClient()
+  if (!openai) {
+    return fallback
+  }
 
-  // Normalize people entries — ensure each has a prose_summary
-  const people = (parsed.people || []).slice(0, 3).map((p) => ({
-    name: p.name,
-    role_or_context: p.role_or_context,
-    prose_summary: p.prose_summary || '',
-  }))
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: `extract structured memory from this transcript:\n\n${transcript}`,
+        },
+      ],
+      temperature: 0.1,
+    })
 
-  return {
-    people,
-    topics: (parsed.topics || []).slice(0, 3),
-    promises: parsed.promises || [],
-    next_actions: (parsed.next_actions || []).slice(0, 3),
-    episode_prose: parsed.episode_prose || '',
+    const content = response.choices[0]?.message?.content
+    if (!content) {
+      return fallback
+    }
+
+    const parsed = JSON.parse(content) as ExtractionResult
+
+    // Normalize people entries — ensure each has a prose_summary
+    const people = (parsed.people || []).slice(0, 3).map((p) => ({
+      name: p.name,
+      role_or_context: p.role_or_context,
+      prose_summary: p.prose_summary || '',
+    }))
+
+    return {
+      people,
+      topics: (parsed.topics || []).slice(0, 3),
+      promises: parsed.promises || [],
+      next_actions: (parsed.next_actions || []).slice(0, 3),
+      episode_prose: parsed.episode_prose || '',
+    }
+  } catch (err) {
+    console.error('extractMemory fallback due to OpenAI error:', err)
+    return fallback
   }
 }
 
-// --- Vision: Google Meet frame analysis ---
-// Sampled frames from screen recordings are sent here one at a time.
-// Returns the detected participants + who (if anyone) is the active
-// speaker in this frame. Bboxes are normalized to [0, 1] because models
-// handle normalized coords more consistently than raw pixels.
-
-const MEET_VISION_SYSTEM_PROMPT = `you are a computer vision agent analyzing a screenshot. return only valid json matching this schema:
-
+const MEET_VISION_SYSTEM_PROMPT = `you are a computer vision agent analyzing a screenshot. return only valid json:
 {
   "is_meet": boolean,
   "detections": [
     { "name": string, "tile_bbox": [number, number, number, number], "active": boolean }
   ]
 }
-
-instructions:
-1. determine if this is a google meet video call screenshot. look for: grid of video tiles, participant name labels, meet ui bar. if not, return is_meet=false and detections=[].
-2. if it is google meet: for each visible participant tile with a readable name:
-   - "name": exactly as shown in the name label (preserve case and spacing). if you only see a "you" label, use the literal string "you".
-   - "tile_bbox": [x, y, w, h] normalized to [0, 1] where (0,0) is top-left and (1,1) is bottom-right. tightly enclose the participant's video tile including the name label strip at the bottom.
-   - "active": true only if this tile has a visible colored border (typically blue) indicating they are the currently active speaker. at most one tile should have active=true. if no tile clearly shows an active-speaker border, set active=false for all.
-3. only include tiles where the name is clearly legible. skip tiles where you can't read the name.
-4. return at most 9 detections.
-5. precision over recall — skip ambiguous tiles rather than guess names.`
+for tile_bbox use normalized [x,y,w,h] in range [0,1]. at most one active=true.`
 
 function clamp01(n: unknown): number {
   const v = typeof n === 'number' && Number.isFinite(n) ? n : 0
@@ -224,6 +138,10 @@ export async function analyzeMeetFrame(
   dataUrl: string,
   t_ms: number
 ): Promise<FrameAnalysis> {
+  const fallback: FrameAnalysis = { t_ms, is_meet: false, detections: [] }
+  const openai = getOpenAIClient()
+  if (!openai) return fallback
+
   try {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -233,65 +151,36 @@ export async function analyzeMeetFrame(
         {
           role: 'user',
           content: [
-            {
-              type: 'text',
-              text: 'analyze this frame and return the json.',
-            },
-            {
-              type: 'image_url',
-              image_url: { url: dataUrl, detail: 'low' },
-            },
-          ],
+            { type: 'text', text: 'analyze this frame' },
+            { type: 'image_url', image_url: { url: dataUrl } },
+          ] as unknown as string,
         },
       ],
       temperature: 0,
-      max_tokens: 600,
     })
-
     const content = response.choices[0]?.message?.content
-    if (!content) {
-      return { t_ms, is_meet: false, detections: [] }
-    }
-
+    if (!content) return fallback
     const parsed = JSON.parse(content) as {
       is_meet?: boolean
-      detections?: Array<{
-        name?: unknown
-        tile_bbox?: unknown
-        active?: unknown
-      }>
+      detections?: Array<{ name?: string; tile_bbox?: unknown; active?: boolean }>
     }
-
-    if (!parsed.is_meet) {
-      return { t_ms, is_meet: false, detections: [] }
-    }
-
     const detections = (parsed.detections || [])
       .map((d) => {
-        const bbox = parseBBox(d.tile_bbox)
-        const name = typeof d.name === 'string' ? d.name.trim() : ''
-        if (!bbox || !name) return null
-        return {
-          name,
-          tile_bbox: bbox,
-          active: d.active === true,
-        }
+        const name = (d.name || '').trim()
+        const tile_bbox = parseBBox(d.tile_bbox)
+        if (!name || !tile_bbox) return null
+        return { name, tile_bbox, active: !!d.active }
       })
       .filter((d): d is NonNullable<typeof d> => d !== null)
       .slice(0, 9)
 
-    // Enforce "at most one active per frame" in case the model slipped.
-    let sawActive = false
-    for (const d of detections) {
-      if (d.active) {
-        if (sawActive) d.active = false
-        else sawActive = true
-      }
+    return {
+      t_ms,
+      is_meet: !!parsed.is_meet,
+      detections,
     }
-
-    return { t_ms, is_meet: true, detections }
   } catch (err) {
-    console.error('vision analyze failed:', err)
-    return { t_ms, is_meet: false, detections: [] }
+    console.error('analyzeMeetFrame fallback due to OpenAI error:', err)
+    return fallback
   }
 }

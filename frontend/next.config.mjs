@@ -13,6 +13,9 @@ const nextConfig = {
   },
   turbopack: {
     root: __dirname,
+    resolveAlias: {
+      '@vladmandic/human': './node_modules/@vladmandic/human/dist/human.esm.js',
+    },
   },
   // better-sqlite3 ships a native .node addon — keep it out of the server bundle
   // so it's resolved at runtime instead of being webpack-ed.
