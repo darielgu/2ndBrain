@@ -62,6 +62,14 @@ export interface ExtractionResult {
      * embedding in a memory index. 2-4 sentences.
      */
     prose_summary: string
+    // --- Contact fields — ONLY populated when explicitly stated in the
+    // transcript ("my email is foo@bar.com", "I'm head of ops at acme").
+    // Never inferred from context.
+    email?: string
+    job_title?: string
+    company?: string
+    linkedin_url?: string
+    phone?: string
   }[] // max 3
   topics: string[] // 1-3
   promises: string[] // verbatim, empty if none

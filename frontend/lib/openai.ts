@@ -110,12 +110,20 @@ export async function segmentSpeakers(
 const EXTRACTION_SYSTEM_PROMPT = `you are a memory extraction agent for secondbrain. given a conversation transcript, extract structured data AND write natural-language prose suitable for a memory index.
 
 rules (strict):
-- extract ONLY: people involved, key topics, explicit promises, next actions
-- people: max 3. include name, brief role/context, and a prose_summary (see below)
+- extract ONLY: people involved, key topics, explicit promises, next actions, and per-person contact fields if explicitly stated.
+- people: max 3. include name, brief role/context, prose_summary, and contact fields when stated.
 - topics: 1-3 key topics discussed
 - promises: ONLY explicit, verbatim commitments. if no promise was made, return an empty array. do NOT infer or assume promises
 - next_actions: max 3 concrete next steps mentioned
 - prefer precision over recall — "boring but correct" over "smart but wrong"
+
+contact fields (per person — CRITICAL rules):
+- only populate email / job_title / company / linkedin_url / phone when the person EXPLICITLY states it in the transcript ("my email is jane@acme.com", "i'm head of ops at stripe", "text me at 415...").
+- do NOT guess from context, do NOT infer from a company domain, do NOT fabricate.
+- if a field wasn't stated, omit it entirely from the json (don't set to null, don't include the key).
+- email: must be a well-formed address (contains "@" and a dot). don't accept partial mentions.
+- linkedin_url: include only if a full url or clear handle is given.
+- phone: digits only (international format ok).
 
 prose writing:
 - prose_summary (per person): 2-4 sentences describing this specific person based ONLY on what the transcript reveals. include their role, what they work on, any relevant facts, and what was promised to or by them. write naturally, as if describing them to a friend. use their name. do NOT invent details.
@@ -127,7 +135,12 @@ return valid json matching this exact schema:
     {
       "name": "string",
       "role_or_context": "string or null",
-      "prose_summary": "2-4 sentence prose paragraph about this person"
+      "prose_summary": "2-4 sentence prose paragraph about this person",
+      "email": "optional — only if explicitly said",
+      "job_title": "optional — only if explicitly said",
+      "company": "optional — only if explicitly said",
+      "linkedin_url": "optional — only if explicitly said",
+      "phone": "optional — only if explicitly said"
     }
   ],
   "topics": ["string"],
@@ -165,11 +178,28 @@ export async function extractMemory(
 
   const parsed = JSON.parse(content) as ExtractionResult
 
-  // Normalize people entries — ensure each has a prose_summary
+  // Normalize people entries — ensure each has a prose_summary and only
+  // carry contact fields that were explicitly set (no empty-string keys).
+  const validEmail = (e?: string): string | undefined => {
+    if (!e || typeof e !== 'string') return undefined
+    const trimmed = e.trim()
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : undefined
+  }
+  const nonEmpty = (s?: string): string | undefined => {
+    if (!s || typeof s !== 'string') return undefined
+    const trimmed = s.trim()
+    return trimmed.length > 0 ? trimmed : undefined
+  }
+
   const people = (parsed.people || []).slice(0, 3).map((p) => ({
     name: p.name,
     role_or_context: p.role_or_context,
     prose_summary: p.prose_summary || '',
+    email: validEmail(p.email),
+    job_title: nonEmpty(p.job_title),
+    company: nonEmpty(p.company),
+    linkedin_url: nonEmpty(p.linkedin_url),
+    phone: nonEmpty(p.phone),
   }))
 
   return {

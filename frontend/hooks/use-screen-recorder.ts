@@ -555,6 +555,11 @@ export function useScreenRecorder() {
           notes: person.prose_summary ? [person.prose_summary] : [],
           prose: person.prose_summary,
           face_image,
+          // Contact fields captured from transcript (only set when extracted).
+          email: person.email,
+          job_title: person.job_title,
+          company: person.company,
+          linkedin_url: person.linkedin_url,
         }
 
         await fetch('/api/memory', {

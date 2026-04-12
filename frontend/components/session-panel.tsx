@@ -11,9 +11,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { LiveTranscript } from '@/components/live-transcript'
-import { ExtractionCard } from '@/components/extraction-card'
-import { ActionProposals } from '@/components/action-proposals'
-import { ProfileSyncCard } from '@/components/profile-sync-card'
+import { PostCallConfirmation } from '@/components/post-call-confirmation'
 import { SessionEnding } from '@/components/session-ending'
 import { useRecording } from '@/components/recording-provider'
 import { canCaptureSystemAudio } from '@/hooks/use-screen-recorder'
@@ -216,15 +214,10 @@ export function SessionPanel({
           </CardContent>
         </Card>
 
-        {/* Show extraction result after a recording finishes */}
+        {/* Unified post-call review: memory, profiles, calendar, email, tasks */}
         {recorder.extraction && (
           <>
-            <ExtractionCard
-              extraction={recorder.extraction}
-              visualPeople={recorder.visualPeople}
-            />
-            <ProfileSyncCard extraction={recorder.extraction} />
-            <ActionProposals extraction={recorder.extraction} />
+            <PostCallConfirmation extraction={recorder.extraction} />
             {recorder.chunks.length > 0 && (
               <LiveTranscript
                 chunks={recorder.chunks}
