@@ -10,12 +10,11 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 type ChatRole = 'user' | 'assistant'
 type ChatMessage = { role: ChatRole; text: string }
 
-const SYSTEM_PROMPT = `you are secondbrain — a real-world memory oracle.
-you answer the user's questions using ONLY the memory context provided below.
-- ground every claim in the memory snippets. if the memory does not contain the answer, say so plainly.
-- prefer precision over recall. do not invent people, promises, or details.
-- write in lowercase, terse, terminal tone. 1-4 sentences unless a list is clearly needed.
-- when quoting a promise or commitment, keep it verbatim.`
+const SYSTEM_PROMPT = `you are secondbrain memory chat.
+use only provided memory context.
+be short and direct: 1-2 sentences, lowercase.
+never invent people, events, or promises.
+if memory is missing, say that plainly.`
 
 function formatMemoryContext(results: NiaSearchResult[]): string {
   if (results.length === 0) return 'no relevant memory found.'
