@@ -21,6 +21,7 @@ type ToolCallItem = {
 type Citation = {
   context_id: string
   title: string
+  date?: string
 }
 
 type ChatMessage = {
@@ -74,6 +75,19 @@ function statusDotTone(status: ToolCallItem['status']): string {
   if (status === 'done') return 'bg-emerald-300'
   if (status === 'error') return 'bg-destructive'
   return 'bg-blue-300'
+}
+
+function formatCitationDate(iso?: string): string {
+  if (!iso) return ''
+  try {
+    return new Date(iso).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    })
+  } catch {
+    return ''
+  }
 }
 
 function StreamingMarkdown({
@@ -262,6 +276,13 @@ export default function ChatPage() {
                       const id = (row as Record<string, unknown>).context_id
                       const title = (row as Record<string, unknown>).title
                       return typeof id === 'string' && typeof title === 'string'
+                    })
+                    .map((row) => {
+                      const date = (row as Record<string, unknown>).date
+                      return {
+                        ...row,
+                        date: typeof date === 'string' ? date : undefined,
+                      }
                     })
                     .slice(0, 6)
                 : []
@@ -488,7 +509,10 @@ export default function ChatPage() {
                     {message.citations && message.citations.length > 0 ? (
                       <div className="mt-2 border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
                         {message.citations.map((citation) => (
-                          <p key={citation.context_id}>{citation.title}</p>
+                          <p key={citation.context_id}>
+                            {citation.title}
+                            {formatCitationDate(citation.date) ? ` • ${formatCitationDate(citation.date)}` : ''}
+                          </p>
                         ))}
                       </div>
                     ) : null}

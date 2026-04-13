@@ -19,6 +19,7 @@ type SearchToolArgs = {
 type Citation = {
   context_id: string
   title: string
+  date?: string
 }
 
 type ToolSearchResult = {
@@ -139,11 +140,42 @@ function collectCitationsFromToolResult(
   for (const row of toolResult.results) {
     const id = typeof row.id === 'string' ? row.id : ''
     if (!id || sink.has(id)) continue
+    const metadata = row.metadata && typeof row.metadata === 'object'
+      ? (row.metadata as Record<string, unknown>)
+      : null
+    const rawDate =
+      (typeof row.updated_at === 'string' ? row.updated_at : '') ||
+      (typeof row.created_at === 'string' ? row.created_at : '') ||
+      (metadata && typeof metadata.timestamp === 'string' ? metadata.timestamp : '') ||
+      (metadata && typeof metadata.last_seen === 'string' ? metadata.last_seen : '')
     sink.set(id, {
       context_id: id,
       title: typeof row.title === 'string' ? row.title : 'untitled',
+      date: rawDate || undefined,
     })
   }
+}
+
+function dedupeCitationsByTitle(citations: Citation[]): Citation[] {
+  const byTitle = new Map<string, Citation>()
+
+  for (const citation of citations) {
+    const key = citation.title.trim().toLowerCase()
+    if (!key) continue
+
+    const existing = byTitle.get(key)
+    if (!existing) {
+      byTitle.set(key, citation)
+      continue
+    }
+
+    const nextDate = citation.date || ''
+    const currentDate = existing.date || ''
+    const keepNext = nextDate.localeCompare(currentDate) > 0
+    if (keepNext) byTitle.set(key, citation)
+  }
+
+  return Array.from(byTitle.values())
 }
 
 async function executeMemoryAgent(params: {
@@ -242,7 +274,7 @@ async function executeMemoryAgent(params: {
 
   return {
     answer,
-    citations: Array.from(citationsMap.values()).slice(0, 6),
+    citations: dedupeCitationsByTitle(Array.from(citationsMap.values())).slice(0, 6),
   }
 }
 
