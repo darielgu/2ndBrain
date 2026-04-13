@@ -10,9 +10,8 @@ const spaceGrotesk = Space_Grotesk({ weight: ["500", "700"], subsets: ["latin"] 
 
 export function HeroHeader() {
   const repoUrl = "https://github.com/darielgu/2ndBrain"
-  const demoVideoUrl = "https://www.youtube.com/embed/BIZgHGt1pNI"
   const installCommand =
-    "curl -fsSL https://codeload.github.com/darielgu/2ndBrain/tar.gz/refs/heads/main | tar -xz && cd 2ndBrain-main/frontend && npm i && npm run dev"
+    "git clone https://github.com/darielgu/2ndBrain.git && cd 2ndBrain/frontend && npm install && npm run dev"
   const [copied, setCopied] = useState(false)
   const [showLocalAuthCtas, setShowLocalAuthCtas] = useState(false)
 
@@ -51,7 +50,7 @@ export function HeroHeader() {
 
       {/* Hero Section */}
       <section className="relative overflow-hidden">
-        <div className="mx-auto max-w-4xl px-6 py-24 text-center md:py-32">
+        <div className="mx-auto max-w-4xl px-4 py-16 text-center sm:px-6 md:py-32">
           {/* Eyebrow */}
           <div className="gleam-badge mb-6 inline-flex items-center gap-2 border border-border px-3 py-1.5">
             <span className="inline-flex h-4 w-4 items-center justify-center bg-white">
@@ -63,7 +62,7 @@ export function HeroHeader() {
           </div>
 
           {/* Main Headline */}
-          <h1 className={`${spaceGrotesk.className} mb-6 text-4xl font-medium lowercase tracking-tight text-foreground md:text-6xl lg:text-7xl text-balance`}>
+          <h1 className={`${spaceGrotesk.className} mb-6 text-3xl font-medium lowercase tracking-tight text-foreground sm:text-4xl md:text-6xl lg:text-7xl text-balance`}>
             bring your context into the{' '}
             <span className="font-serif italic normal-case tracking-normal">
               real world
@@ -77,11 +76,17 @@ export function HeroHeader() {
           </p>
 
           {/* CTA Buttons */}
-          <div className="mb-12 flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Button className="h-12 bg-foreground px-8 text-background hover:bg-foreground/90 lowercase text-sm">
-              start for free
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
+          <div
+            className={`mb-12 flex flex-col items-center justify-center gap-4 ${
+              showLocalAuthCtas ? "sm:flex-row" : ""
+            }`}
+          >
+            {showLocalAuthCtas ? (
+              <Button className="h-12 bg-foreground px-8 text-background hover:bg-foreground/90 lowercase text-sm">
+                start for free
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            ) : null}
             <Button asChild variant="outline" className="h-12 border-border px-8 text-foreground hover:bg-muted lowercase text-sm">
               <a href={repoUrl} target="_blank" rel="noreferrer">
                 <Github className="mr-2 h-4 w-4" />
@@ -91,7 +96,7 @@ export function HeroHeader() {
           </div>
 
           {/* Terminal Installation Box */}
-          <div className="mx-auto max-w-md">
+          <div className="mx-auto w-full max-w-2xl">
             <div className="border border-border bg-muted/30">
               <div className="flex items-center justify-between border-b border-border px-4 py-2">
                 <div className="flex items-center gap-2">
@@ -110,32 +115,20 @@ export function HeroHeader() {
                 </Button>
               </div>
               <div className="px-4 py-3">
-                <code className="text-sm text-foreground break-all">
+                <code className="break-all text-xs text-foreground sm:text-sm">
                   <span className="text-muted-foreground">{">"}</span> {installCommand}
                 </code>
               </div>
             </div>
+            <div className="mt-3 flex items-center justify-center">
+              <Button asChild variant="outline" className="h-9 border-border px-4 lowercase text-xs hover:bg-muted">
+                <a href="/setup">open setup wizard</a>
+              </Button>
+            </div>
           </div>
         </div>
-        <div className="mx-auto max-w-6xl px-6 pb-24">
+        <div className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 md:pb-24">
           <AsciiSignal />
-        </div>
-        <div className="mx-auto max-w-6xl px-6 pb-24">
-          <section className="mx-auto max-w-5xl border border-border bg-muted/20 p-4 md:p-6">
-            <h2 className="mb-4 text-left text-xl lowercase tracking-tight text-foreground md:text-2xl">
-              see how it works
-            </h2>
-            <div className="relative w-full overflow-hidden border border-border bg-black pb-[56.25%]">
-              <iframe
-                className="absolute left-0 top-0 h-full w-full"
-                src={demoVideoUrl}
-                title="SecondBrain demo video"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                referrerPolicy="strict-origin-when-cross-origin"
-                allowFullScreen
-              />
-            </div>
-          </section>
         </div>
       </section>
     </div>

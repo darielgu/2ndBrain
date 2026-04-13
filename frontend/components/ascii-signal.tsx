@@ -1,3 +1,5 @@
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
 const ASCII_ART = `@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -68,6 +70,7 @@ const ASCII_ART = `@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 %#%*+***+++++==-+=+=-++*+**=++++++*+*++++##***%**######*+*#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 *#*=*++++*+-=+=+-++==-=+#*=#++*+=+#*+++#*%****=*%**%***++*#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 %#=*+=*+*=-++==-===+++**+**%%%#**%%#%##*#@@#@**#%#+#%+++**%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`;
+const DEMO_VIDEO_URL = "https://www.youtube.com/embed/BIZgHGt1pNI";
 
 export function AsciiSignal() {
   return (
@@ -112,6 +115,19 @@ export function AsciiSignal() {
         </aside>
       </div>
       <section className="mt-6 border border-border bg-background/60 p-4 md:p-5">
+        <p className="mb-3 text-xs uppercase tracking-[0.2em] text-muted-foreground">See How It Works</p>
+        <div className="relative w-full overflow-hidden border border-border bg-black pb-[56.25%]">
+          <iframe
+            className="absolute left-0 top-0 h-full w-full"
+            src={DEMO_VIDEO_URL}
+            title="SecondBrain demo video"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerPolicy="strict-origin-when-cross-origin"
+            allowFullScreen
+          />
+        </div>
+      </section>
+      <section className="mt-6 border border-border bg-background/60 p-4 md:p-5">
         <p className="mb-3 text-xs uppercase tracking-[0.2em] text-muted-foreground">Founders</p>
         <div className="overflow-hidden border border-border bg-background/70">
           <img
@@ -125,30 +141,51 @@ export function AsciiSignal() {
           />
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-          <a
-            href="https://www.calebdickson-portfolio.com/"
-            target="_blank"
-            rel="noreferrer"
-            className="border border-border bg-muted/20 px-3 py-2 text-xs uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted/40"
-          >
-            Caleb
-          </a>
-          <a
-            href="https://www.enzoweiss.com/"
-            target="_blank"
-            rel="noreferrer"
-            className="border border-border bg-muted/20 px-3 py-2 text-xs uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted/40"
-          >
-            Enzo
-          </a>
-          <a
-            href="https://aboutdariel.me/"
-            target="_blank"
-            rel="noreferrer"
-            className="border border-border bg-muted/20 px-3 py-2 text-xs uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted/40"
-          >
-            Dariel
-          </a>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href="https://www.calebdickson-portfolio.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="border border-border bg-muted/20 px-3 py-2 text-xs uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted/40"
+              >
+                Caleb
+              </a>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={8} className="lowercase">
+              product, implementation
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href="https://www.enzoweiss.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="border border-border bg-muted/20 px-3 py-2 text-xs uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted/40"
+              >
+                Enzo
+              </a>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={8} className="lowercase">
+              implementation + ig reels
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href="https://aboutdariel.me/"
+                target="_blank"
+                rel="noreferrer"
+                className="border border-border bg-muted/20 px-3 py-2 text-xs uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted/40"
+              >
+                Dariel
+              </a>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={8} className="lowercase">
+              product, design, implementation
+            </TooltipContent>
+          </Tooltip>
         </div>
       </section>
     </div>
