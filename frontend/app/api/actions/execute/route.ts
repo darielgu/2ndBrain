@@ -28,6 +28,12 @@ export async function POST(request: Request) {
     }
 
     if (p.kind === 'calendar') {
+      if (!p.startIso || !p.endIso) {
+        return NextResponse.json(
+          { error: 'missing start/end time — edit the event to set a date & time before booking.' },
+          { status: 400 },
+        )
+      }
       const event = await createCalendarEvent(user, {
         summary: p.summary,
         description: p.description,

@@ -42,14 +42,23 @@ export type ActionProposal =
 const CLASSIFIER_PROMPT = `you classify action items from a meeting into structured google-integration proposals.
 
 for each action, decide exactly one kind:
-- "calendar": the action schedules a meeting/event with a specific time or day. resolve concrete start + end times (iso 8601). default duration 30 min for coffee, 60 for calls/meetings. if a specific time isn't given but a day is, leave startIso null-ish using 09:00 local and flag it. if no time at all, use "task" instead. set withMeet: true unless it's clearly in-person ("coffee", "lunch", "office").
+
+- "calendar": the action schedules a meeting/event with at least a date. ALWAYS produce concrete startIso and endIso in ISO 8601 (e.g. "2026-04-21T15:00:00-07:00") — never leave them empty. resolution:
+    * BOTH day + time given ("april 21 at 3pm") → use them directly.
+    * ONLY a day given ("april 21st", "next tuesday", "tomorrow") → default to 09:00 local on that day.
+    * NO day at all → classify as "task" instead (not "calendar").
+  duration defaults: 30 min for coffee/lunch/quick, 60 min for meeting/call/sync/invite.
+  set withMeet: true unless clearly in-person (coffee, lunch, office, in-person).
+  set a clear short summary (3-8 words) that reads as an event title.
+
 - "email_draft": the action is to send/email something ("i'll email you the deck"). write a short 2-4 sentence plain-text draft in first person (the speaker is "me"), lowercase tone. subject should be specific.
 - "task": any other concrete next-action that's a to-do ("review the repo", "look into it"). title 3-8 words, notes can quote the original.
 - "unknown": vague ("think about it", "we'll see") or non-actionable. skip these with a brief reason.
 
 rules:
-- be conservative. don't invent attendee emails — use ONLY the ones in the known_people list.
-- iso times must be absolute. use the reference timezone offset passed in.
+- be conservative on attendees. don't invent attendee emails — use ONLY the ones in the known_people list.
+- iso times must be absolute and include the timezone offset matching the reference_now_iso provided.
+- year: infer from reference_now_iso. "april 21st" when reference is 2026 means 2026-04-21; if the date already passed this year, prefer next year.
 - match attendees to the known_people list by name (case-insensitive, fuzzy). include their email only if present in the list. missing emails are ok — leave attendeeEmails empty.
 - one action in → one proposal out. return them in the same order.
 

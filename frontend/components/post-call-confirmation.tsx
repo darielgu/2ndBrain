@@ -615,7 +615,11 @@ function CalendarRow({
 
       {item.status !== 'done' && !editing && (
         <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
-          <p>when: {fmtRange(item.proposal.startIso, item.proposal.endIso)}</p>
+          {item.proposal.startIso ? (
+            <p>when: {fmtRange(item.proposal.startIso, item.proposal.endIso)}</p>
+          ) : (
+            <p className="text-yellow-300/80">when: (no time — edit to set a day/time before booking)</p>
+          )}
           {item.proposal.attendeeEmails.length > 0 ? (
             <p>to: {item.proposal.attendeeEmails.join(', ')}</p>
           ) : (
