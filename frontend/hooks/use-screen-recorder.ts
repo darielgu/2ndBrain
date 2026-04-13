@@ -10,6 +10,22 @@ import type {
 
 const CHUNK_INTERVAL_MS = 15_000 // 15 seconds per chunk
 
+// Mix multiple MediaStreams' audio tracks into one stream via the Web Audio
+// API. Needed to combine mic + tab audio so whisper hears both the user
+// and the other side of the call.
+function mixAudioStreams(
+  ctx: AudioContext,
+  sources: MediaStream[],
+): MediaStream {
+  const destination = ctx.createMediaStreamDestination()
+  for (const src of sources) {
+    if (src.getAudioTracks().length === 0) continue
+    const node = ctx.createMediaStreamSource(src)
+    node.connect(destination)
+  }
+  return destination.stream
+}
+
 function getSupportedMimeType(): string {
   const types = [
     'audio/webm;codecs=opus',
@@ -54,6 +70,8 @@ export function useScreenRecorder() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const audioStreamRef = useRef<MediaStream | null>(null)
+  const micStreamRef = useRef<MediaStream | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const chunkTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const chunkIndexRef = useRef(0)
@@ -82,6 +100,14 @@ export function useScreenRecorder() {
     }
     mediaRecorderRef.current = null
     audioStreamRef.current = null
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((t) => t.stop())
+      micStreamRef.current = null
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {})
+      audioContextRef.current = null
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
@@ -178,14 +204,8 @@ export function useScreenRecorder() {
         audio: true,
       })
 
-      // Check if we actually got audio tracks
-      const audioTracks = displayStream.getAudioTracks()
-      if (audioTracks.length === 0) {
-        setError(
-          'no audio track captured. make sure to check "share audio" in the browser dialog.'
-        )
-        // Still allow recording for video preview, just no transcription
-      }
+      const displayAudioTracks = displayStream.getAudioTracks()
+      const hasDisplayAudio = displayAudioTracks.length > 0
 
       streamRef.current = displayStream
       setStream(displayStream)
@@ -195,14 +215,59 @@ export function useScreenRecorder() {
         stopRecording()
       })
 
-      // Set up audio recording if audio tracks available. Instead of using
-      // MediaRecorder's timeslice (which produces header-less fragments that
-      // whisper rejects after the first chunk), we stop+restart the recorder
-      // every CHUNK_INTERVAL_MS so each blob is a complete, standalone webm
-      // file with its own EBML header.
-      if (audioTracks.length > 0) {
-        const audioStream = new MediaStream(audioTracks)
-        audioStreamRef.current = audioStream
+      // Also grab the mic so whisper hears the user's own voice, not just
+      // whatever the shared tab outputs. If the user denies mic, we fall
+      // back to display audio only.
+      let micStream: MediaStream | null = null
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        })
+        micStreamRef.current = micStream
+      } catch {
+        // Mic denied — continue with display audio only.
+      }
+      const hasMic = !!micStream && micStream.getAudioTracks().length > 0
+
+      if (!hasDisplayAudio && !hasMic) {
+        setError(
+          'no audio captured. enable "share audio" in the browser dialog, or allow mic access.',
+        )
+      } else if (!hasDisplayAudio) {
+        setError(
+          'system audio not shared — recording mic only. tick "share audio" next time to capture both.',
+        )
+      } else if (!hasMic) {
+        setError(
+          'mic not available — recording system audio only. allow mic access to capture your voice.',
+        )
+      }
+
+      if (hasDisplayAudio || hasMic) {
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext
+        const audioContext = new AudioCtx()
+        audioContextRef.current = audioContext
+
+        const sources: MediaStream[] = []
+        if (hasDisplayAudio) {
+          sources.push(new MediaStream(displayAudioTracks))
+        }
+        if (hasMic && micStream) {
+          sources.push(micStream)
+        }
+        // Mix so a single MediaRecorder captures both. The stop/restart
+        // cycle below guarantees each resulting webm has its own header
+        // so whisper can decode every chunk (not just the first).
+        const mixedStream = mixAudioStreams(audioContext, sources)
+        audioStreamRef.current = mixedStream
         recordingActiveRef.current = true
         startChunkCycle()
       }
