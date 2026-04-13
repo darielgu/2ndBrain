@@ -53,17 +53,27 @@ export function useScreenRecorder() {
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const audioStreamRef = useRef<MediaStream | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const chunkTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const chunkIndexRef = useRef(0)
   const transcriptRef = useRef('')
+  // True while we're actively rolling chunks. Flipped to false in stop so
+  // the last onstop doesn't start a new recorder.
+  const recordingActiveRef = useRef(false)
   // Track in-flight transcription requests
   const pendingRef = useRef(0)
   const [isTranscribing, setIsTranscribing] = useState(false)
 
   const cleanup = useCallback(() => {
+    recordingActiveRef.current = false
     if (timerRef.current) {
       clearInterval(timerRef.current)
       timerRef.current = null
+    }
+    if (chunkTimeoutRef.current) {
+      clearTimeout(chunkTimeoutRef.current)
+      chunkTimeoutRef.current = null
     }
     if (mediaRecorderRef.current?.state !== 'inactive') {
       try {
@@ -71,6 +81,7 @@ export function useScreenRecorder() {
       } catch {}
     }
     mediaRecorderRef.current = null
+    audioStreamRef.current = null
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
@@ -116,6 +127,42 @@ export function useScreenRecorder() {
     }
   }, [])
 
+  const startChunkCycle = useCallback(() => {
+    if (!recordingActiveRef.current) return
+    const audioStream = audioStreamRef.current
+    if (!audioStream) return
+
+    const mimeType = getSupportedMimeType()
+    const recorder = new MediaRecorder(audioStream, { mimeType })
+    const dataChunks: Blob[] = []
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) dataChunks.push(e.data)
+    }
+
+    recorder.onstop = () => {
+      const blob = new Blob(dataChunks, { type: mimeType })
+      if (blob.size > 0) {
+        const index = chunkIndexRef.current++
+        transcribeChunk(blob, index)
+      }
+      // Immediately start the next cycle if we're still recording. This
+      // keeps audio coverage seamless across chunk boundaries.
+      if (recordingActiveRef.current) {
+        startChunkCycle()
+      }
+    }
+
+    mediaRecorderRef.current = recorder
+    recorder.start()
+
+    chunkTimeoutRef.current = setTimeout(() => {
+      if (recorder.state !== 'inactive') {
+        recorder.stop()
+      }
+    }, CHUNK_INTERVAL_MS)
+  }, [transcribeChunk])
+
   const startRecording = useCallback(async () => {
     setError(null)
     setChunks([])
@@ -148,21 +195,16 @@ export function useScreenRecorder() {
         stopRecording()
       })
 
-      // Set up audio recording if audio tracks available
+      // Set up audio recording if audio tracks available. Instead of using
+      // MediaRecorder's timeslice (which produces header-less fragments that
+      // whisper rejects after the first chunk), we stop+restart the recorder
+      // every CHUNK_INTERVAL_MS so each blob is a complete, standalone webm
+      // file with its own EBML header.
       if (audioTracks.length > 0) {
         const audioStream = new MediaStream(audioTracks)
-        const mimeType = getSupportedMimeType()
-        const recorder = new MediaRecorder(audioStream, { mimeType })
-
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            const index = chunkIndexRef.current++
-            transcribeChunk(e.data, index)
-          }
-        }
-
-        mediaRecorderRef.current = recorder
-        recorder.start(CHUNK_INTERVAL_MS)
+        audioStreamRef.current = audioStream
+        recordingActiveRef.current = true
+        startChunkCycle()
       }
 
       // Start elapsed timer
@@ -176,10 +218,17 @@ export function useScreenRecorder() {
       setError('screen share cancelled or denied.')
       cleanup()
     }
-  }, [cleanup, transcribeChunk])
+  }, [cleanup, startChunkCycle])
 
   const stopRecording = useCallback(async () => {
-    // Stop the media recorder (triggers final ondataavailable)
+    // Flip the rolling-chunk flag FIRST so the in-flight recorder's onstop
+    // transcribes its final blob but doesn't start a new cycle.
+    recordingActiveRef.current = false
+    if (chunkTimeoutRef.current) {
+      clearTimeout(chunkTimeoutRef.current)
+      chunkTimeoutRef.current = null
+    }
+    // Stop the media recorder (triggers final onstop → last transcribe)
     if (
       mediaRecorderRef.current &&
       mediaRecorderRef.current.state !== 'inactive'
