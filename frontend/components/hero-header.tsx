@@ -1,22 +1,12 @@
-"use client"
-
-import { ArrowRight, Github, Terminal, Copy, Check } from "lucide-react"
+import { ArrowRight, Github, Terminal } from "lucide-react"
 import { Space_Grotesk } from "next/font/google"
-import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { AsciiSignal } from "@/components/ascii-signal"
 
 const spaceGrotesk = Space_Grotesk({ weight: ["500", "700"], subsets: ["latin"] })
 
 export function HeroHeader() {
-  const [copied, setCopied] = useState(false)
-  const repoUrl = "https://github.com/your-org/your-repo"
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText("npx create-2ndbrain-app@latest")
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+  const repoUrl = "https://github.com/darielgu/2ndBrain"
 
   return (
     <div className="min-h-screen bg-background">
@@ -27,21 +17,10 @@ export function HeroHeader() {
             <a href="/" className="text-lg font-bold lowercase tracking-tight text-foreground">
               2ndbrain
             </a>
-            <nav className="hidden items-center gap-6 md:flex">
-              <a href="#features" className="text-sm lowercase text-muted-foreground transition-colors hover:text-foreground">
-                features
-              </a>
-              <a href="#pricing" className="text-sm lowercase text-muted-foreground transition-colors hover:text-foreground">
-                pricing
-              </a>
-              <a href="#docs" className="text-sm lowercase text-muted-foreground transition-colors hover:text-foreground">
-                docs
-              </a>
-            </nav>
           </div>
           <div className="flex items-center gap-4">
-            <Button variant="ghost" className="text-sm lowercase text-muted-foreground hover:text-foreground">
-              sign in
+            <Button asChild variant="ghost" className="text-sm lowercase text-muted-foreground hover:text-foreground">
+              <a href="/dashboard/overview">sign in</a>
             </Button>
             <Button asChild className="bg-foreground text-background hover:bg-foreground/90 lowercase text-sm">
               <a href="/onboarding">get started</a>
@@ -73,8 +52,8 @@ export function HeroHeader() {
 
           {/* Subheadline */}
           <p className="mx-auto mb-10 max-w-2xl text-sm leading-relaxed text-muted-foreground md:text-base">
-            2ndbrain transforms your scattered notes, documents, and ideas into actionable intelligence. 
-            search across your entire knowledge base with ai-powered precision.
+            2ndbrain brings your context into real life. remember real interactions with real people, recover
+            what was said, and surface open loops before the next conversation starts.
           </p>
 
           {/* CTA Buttons */}
@@ -99,22 +78,7 @@ export function HeroHeader() {
                   <Terminal className="h-4 w-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">terminal</span>
                 </div>
-                <button 
-                  onClick={handleCopy}
-                  className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="h-3 w-3" />
-                      copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3 w-3" />
-                      copy
-                    </>
-                  )}
-                </button>
+                <span className="text-xs text-muted-foreground">run this command</span>
               </div>
               <div className="px-4 py-3">
                 <code className="text-sm text-foreground">
@@ -185,36 +149,6 @@ export function HeroHeader() {
               </div>
             </div>
           <AsciiSignal />
-          </div>
-        </div>
-      </section>
-
-      {/* Logo Marquee Section */}
-      <section className="border-y border-border py-12">
-        <div className="mx-auto max-w-7xl px-6">
-          <p className="mb-8 text-center text-xs uppercase tracking-widest text-muted-foreground">
-            trusted by teams at
-          </p>
-          <div className="relative overflow-hidden">
-            <div className="flex animate-marquee items-center gap-12">
-              {['vercel', 'stripe', 'linear', 'notion', 'figma', 'github', 'slack', 'discord'].map((company) => (
-                <div 
-                  key={company} 
-                  className="flex-shrink-0 text-lg font-bold text-muted-foreground/40 transition-colors hover:text-muted-foreground"
-                >
-                  {company}
-                </div>
-              ))}
-              {/* Duplicate for seamless loop */}
-              {['vercel', 'stripe', 'linear', 'notion', 'figma', 'github', 'slack', 'discord'].map((company) => (
-                <div 
-                  key={`${company}-2`} 
-                  className="flex-shrink-0 text-lg font-bold text-muted-foreground/40 transition-colors hover:text-muted-foreground"
-                >
-                  {company}
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </section>

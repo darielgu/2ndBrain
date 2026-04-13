@@ -85,28 +85,21 @@ export function AsciiSignal() {
         <aside className="border border-border bg-background/60 p-4 text-left md:p-5">
           <p className="mb-3 text-xs uppercase tracking-[0.2em] text-muted-foreground">Founder&apos;s Note</p>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer posuere, ipsum at volutpat
-            ultricies, nisl nunc faucibus risus, vitae interdum nisl justo vitae dolor. Sed fermentum
-            nibh in sem commodo, non aliquet metus congue.
+            SecondBrain started from a simple pain: meaningful conversations keep happening in real life,
+            but the context disappears when you need it most. We meet people, make promises, and then
+            rely on memory that is often incomplete.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            Curabitur feugiat, enim sit amet venenatis pellentesque, lorem sem congue purus, id posuere
-            erat justo a neque. Donec hendrerit finibus augue, in pellentesque risus placerat ut.
+            We built this to bridge that gap. Every interaction is turned into structured memory so you
+            can remember who someone is, where you met, what mattered, and what you owe them.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            Praesent fringilla, justo eget varius luctus, nisi libero egestas neque, vitae placerat
-            mauris augue sed magna. Nulla facilisi. Aliquam sed faucibus lorem, ut congue nibh.
-            Pellentesque habitant morbi tristique senectus et netus et malesuada fames ac turpis egestas.
+            The goal is not a giant transcript archive. The goal is clear context at the right moment:
+            real interactions, real people, real follow-through.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            Maecenas luctus sapien vel orci convallis, non dapibus turpis fermentum. Sed volutpat, lorem
-            non dignissim pharetra, turpis dolor viverra sem, vitae accumsan arcu erat in lorem. Fusce
-            porttitor felis eu ex posuere, sit amet cursus leo tempus.
-          </p>
-          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            Aenean dictum sem ut nibh aliquam, in fermentum velit iaculis. Donec sed justo ac libero
-            tristique tempor. Integer a velit at nibh ultricies feugiat quis in purus. Morbi consequat
-            velit id augue convallis, sit amet aliquet libero auctor.
+            Powered by Nia, SecondBrain gives your AI memory of your real life so you can show up prepared
+            in every conversation instead of scrambling to reconstruct the past.
           </p>
         </aside>
       </div>
