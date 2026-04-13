@@ -7,10 +7,6 @@
 [![Local-First](https://img.shields.io/badge/Storage-Local%20First-0f172a)](#local-storage)
 [![Face Tracking](https://img.shields.io/badge/Tracking-Vectorized%20Top--K-1d4ed8)](#how-recognition-works-vectorizing--centroid--top-k)
 
-[![Open Dashboard](https://img.shields.io/badge/Open-Dashboard-111827?style=for-the-badge)](http://localhost:3000/dashboard/overview)
-[![Start Session](https://img.shields.io/badge/Start-Live%20Session-000000?style=for-the-badge)](http://localhost:3000/dashboard/session)
-[![Memory Chat](https://img.shields.io/badge/Try-Memory%20Chat-0b0f19?style=for-the-badge)](http://localhost:3000/dashboard/chat)
-
 ## What This Is
 
 SecondBrain is an experimental memory layer for real-world relationships.
