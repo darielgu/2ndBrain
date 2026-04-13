@@ -110,14 +110,14 @@ export default function DashboardLayout({
     <main className="h-screen w-screen overflow-hidden bg-background text-foreground">
       <div className="grid h-full w-full gap-3 p-3 lg:grid-cols-[auto_1fr]">
         <aside
-          className={`border border-border bg-secondary/20 transition-all duration-200 ${
+          className={`micro-enter border border-border bg-secondary/20 transition-all duration-200 ${
             sidebarOpen ? 'w-[260px] p-4' : 'w-14 p-2'
           } overflow-y-auto`}
         >
           <button
             type="button"
             onClick={() => setSidebarOpen((prev) => !prev)}
-            className="mb-3 flex w-full items-center justify-center border border-border bg-background/30 p-2 text-muted-foreground transition-colors hover:text-foreground"
+            className="mb-3 flex w-full items-center justify-center border border-border bg-background/30 p-2 text-muted-foreground hover:-translate-y-px hover:text-foreground"
             aria-label={sidebarOpen ? 'close sidebar' : 'open sidebar'}
             title={sidebarOpen ? 'close sidebar' : 'open sidebar'}
           >
@@ -135,7 +135,7 @@ export default function DashboardLayout({
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex w-full items-center gap-2 border px-3 py-2 text-left text-sm lowercase transition-colors ${
+                  className={`flex w-full items-center gap-2 border px-3 py-2 text-left text-sm lowercase hover:-translate-y-px ${
                     active
                       ? 'border-foreground/60 bg-background text-foreground'
                       : 'border-border bg-background/30 text-muted-foreground hover:text-foreground'
@@ -152,7 +152,7 @@ export default function DashboardLayout({
 
           <div className="space-y-2 border border-border bg-background/30 p-3 text-xs lowercase text-muted-foreground">
             <p className="flex items-center gap-2">
-              <Sparkles className="h-3.5 w-3.5" />
+              <Sparkles className="micro-pulse-dot h-3.5 w-3.5" />
               {activeLoopCount} active loops
             </p>
             <p>last sync: {lastSync}</p>
@@ -169,7 +169,7 @@ export default function DashboardLayout({
                     <TooltipTrigger asChild>
                       <Link
                         href={item.href}
-                        className={`flex w-full items-center justify-center border p-2 transition-colors ${
+                        className={`flex w-full items-center justify-center border p-2 hover:-translate-y-px ${
                           active
                             ? 'border-foreground/60 bg-background text-foreground'
                             : 'border-border bg-background/30 text-muted-foreground hover:text-foreground'
@@ -189,7 +189,7 @@ export default function DashboardLayout({
           )}
         </aside>
 
-        <section className="h-full overflow-y-auto border border-border bg-secondary/20 p-4">{children}</section>
+        <section className="micro-enter h-full overflow-y-auto border border-border bg-secondary/20 p-4">{children}</section>
       </div>
     </main>
   )

@@ -1,7 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, MessageSquare, UserPlus, Users } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { PromptInputBox } from '@/components/ui/ai-prompt-box'
 import type { Person } from '@/lib/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -68,11 +70,55 @@ function statusTone(status: ToolCallItem['status']): string {
   return 'text-blue-300'
 }
 
+function statusDotTone(status: ToolCallItem['status']): string {
+  if (status === 'done') return 'bg-emerald-300'
+  if (status === 'error') return 'bg-destructive'
+  return 'bg-blue-300'
+}
+
+function StreamingMarkdown({
+  text,
+  pending,
+}: {
+  text: string
+  pending: boolean
+}) {
+  const [displayText, setDisplayText] = useState(text)
+
+  useEffect(() => {
+    if (text === displayText) return
+    if (text.length < displayText.length) {
+      setDisplayText(text)
+      return
+    }
+
+    const timer = window.setInterval(() => {
+      setDisplayText((prev) => {
+        if (prev.length >= text.length) return prev
+        const step = pending ? 3 : 5
+        const next = text.slice(0, prev.length + step)
+        return next
+      })
+    }, 14)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [displayText, pending, text])
+
+  return (
+    <div className="space-y-2 lowercase [&_a]:text-blue-300 [&_a]:underline [&_blockquote]:border-l [&_blockquote]:border-border/70 [&_blockquote]:pl-3 [&_code]:rounded [&_code]:bg-background/50 [&_code]:px-1 [&_code]:py-0.5 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_ol]:space-y-1 [&_p]:leading-relaxed [&_pre]:overflow-x-auto [&_pre]:rounded-sm [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-background/40 [&_pre]:p-2 [&_ul]:list-disc [&_ul]:space-y-1">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown>
+    </div>
+  )
+}
+
 export default function ChatPage() {
   const [people, setPeople] = useState<Person[]>([])
   const [selectedPeopleIds, setSelectedPeopleIds] = useState<string[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isSending, setIsSending] = useState(false)
+  const chatScrollRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -92,6 +138,15 @@ export default function ChatPage() {
     () => people.filter((person) => selectedPeopleIds.includes(person.person_id)),
     [people, selectedPeopleIds]
   )
+
+  useEffect(() => {
+    const el = chatScrollRef.current
+    if (!el) return
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: 'smooth',
+    })
+  }, [messages])
 
   const togglePerson = (personId: string) => {
     setSelectedPeopleIds((prev) =>
@@ -351,7 +406,7 @@ export default function ChatPage() {
   )
 
   return (
-    <div className="space-y-4">
+    <div className="micro-stagger space-y-4">
       <div className="border border-border bg-background/40 px-4 py-4 md:px-5 md:py-5">
         <h1 className="text-xl tracking-tight text-foreground md:text-2xl">Memory Chat</h1>
       </div>
@@ -373,23 +428,44 @@ export default function ChatPage() {
             </div>
           ) : (
             <div className="flex h-[62vh] flex-col">
-              <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+              <div ref={chatScrollRef} className="flex-1 space-y-3 overflow-y-auto pr-1">
                 {messages.map((message) => (
                   <article
                     key={message.id}
-                    className={`max-w-[88%] border p-3 text-sm lowercase ${
+                    className={`micro-enter max-w-[88%] border p-3 text-sm lowercase transition-all duration-200 hover:-translate-y-px ${
                       message.role === 'user'
                         ? 'ml-auto border-foreground/40 bg-background text-foreground'
                         : 'border-border bg-secondary/40 text-muted-foreground'
-                    } ${message.pending ? 'animate-pulse' : ''}`}
+                    }`}
                   >
-                    <p>{message.text || (message.pending ? 'thinking…' : '')}</p>
+                    {message.text ? (
+                      message.role === 'assistant' ? (
+                        <StreamingMarkdown text={message.text} pending={Boolean(message.pending)} />
+                      ) : (
+                        <p>{message.text}</p>
+                      )
+                    ) : null}
 
-                    {message.toolCalls && message.toolCalls.length > 0 ? (
-                      <div className="mt-2 space-y-1 border-t border-border/60 pt-2 text-[11px]">
+                    {message.pending && !message.text ? (
+                      <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-blue-300">
+                        <span className="micro-pulse-dot h-1.5 w-1.5 rounded-full bg-blue-300" />
+                        <span className="micro-pulse-dot h-1.5 w-1.5 rounded-full bg-blue-300 [animation-delay:120ms]" />
+                        <span className="micro-pulse-dot h-1.5 w-1.5 rounded-full bg-blue-300 [animation-delay:220ms]" />
+                        <span className="text-muted-foreground">thinking</span>
+                      </div>
+                    ) : null}
+
+                    {message.pending && message.toolCalls && message.toolCalls.length > 0 ? (
+                      <div className="mt-2 space-y-1.5 border-t border-border/60 pt-2 text-[11px]">
                         {message.toolCalls.map((tool) => (
-                          <div key={tool.id} className="space-y-0.5">
-                            <p className={`${statusTone(tool.status)}`}>
+                          <div
+                            key={tool.id}
+                            className="micro-enter space-y-1 rounded-sm border border-border/70 bg-background/30 px-2 py-1.5"
+                          >
+                            <p className={`inline-flex items-center gap-1.5 ${statusTone(tool.status)}`}>
+                              <span
+                                className={`${tool.status === 'running' ? 'micro-pulse-dot' : ''} h-1.5 w-1.5 rounded-full ${statusDotTone(tool.status)}`}
+                              />
                               tool {tool.name} • {tool.status}
                             </p>
                             {tool.result_preview ? (
@@ -400,6 +476,12 @@ export default function ChatPage() {
                             ) : null}
                           </div>
                         ))}
+                        {message.pending ? (
+                          <p className="micro-enter inline-flex items-center gap-1.5 text-[10px] tracking-wide text-muted-foreground">
+                            <span className="micro-pulse-dot h-1.5 w-1.5 rounded-full bg-blue-300" />
+                            stitching tool results into final answer
+                          </p>
+                        ) : null}
                       </div>
                     ) : null}
 

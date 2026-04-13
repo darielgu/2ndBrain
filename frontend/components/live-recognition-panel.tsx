@@ -1235,7 +1235,7 @@ export function LiveRecognitionPanel({
 
   if (overlay) {
     return (
-      <div className="flex w-full items-start justify-between gap-2">
+      <div className="micro-enter flex w-full items-start justify-between gap-2">
         <Card className="w-[min(380px,48vw)] rounded-none border-white/20 bg-white/10 shadow-none backdrop-blur-md">
           <CardHeader className="gap-1 px-3 py-2">
             <CardTitle className="text-[10px] uppercase tracking-widest text-white/70">nia tips</CardTitle>
@@ -1260,7 +1260,7 @@ export function LiveRecognitionPanel({
               <span className="relative inline-flex h-4 w-4 items-center justify-center">
                 <ScanFace className="h-4 w-4 text-white" />
                 {active ? (
-                  <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 animate-pulse bg-accent" />
+                  <span className="micro-pulse-dot absolute -right-0.5 -top-0.5 h-1.5 w-1.5 bg-accent" />
                 ) : null}
               </span>
               <span className="truncate">{statusLabel}</span>
@@ -1297,7 +1297,7 @@ export function LiveRecognitionPanel({
             <span className="relative inline-flex h-4 w-4 items-center justify-center">
               <ScanFace className="h-4 w-4 text-accent" />
               {active ? (
-                <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 animate-pulse bg-accent" />
+                <span className="micro-pulse-dot absolute -right-0.5 -top-0.5 h-1.5 w-1.5 bg-accent" />
               ) : null}
             </span>
             {profile?.name || 'live recognition'}
@@ -1307,7 +1307,7 @@ export function LiveRecognitionPanel({
               <button
                 type="button"
                 onClick={() => setCollapsed((prev) => !prev)}
-                className="border border-border bg-background/50 p-1 text-muted-foreground transition-colors hover:text-foreground"
+                className="border border-border bg-background/50 p-1 text-muted-foreground transition-all duration-200 hover:-translate-y-px hover:text-foreground"
                 aria-label={collapsed ? 'expand recognition panel' : 'collapse recognition panel'}
                 title={collapsed ? 'expand' : 'collapse'}
               >
