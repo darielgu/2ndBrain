@@ -90,6 +90,12 @@ function formatCitationDate(iso?: string): string {
   }
 }
 
+function toDisplayName(text: string): string {
+  return text.replace(/\bdario\b/gi, (match) =>
+    match[0] === match[0]?.toUpperCase() ? 'Dariel' : 'dariel',
+  )
+}
+
 function StreamingMarkdown({
   text,
   pending,
@@ -173,6 +179,9 @@ export default function ChatPage() {
   const handleSend = async (message: string, _files?: File[]) => {
     const trimmedMessage = message.trim()
     if (!trimmedMessage || isSending) return
+    const backendMessage = trimmedMessage.replace(/\bdariel\b/gi, (match) =>
+      match[0] === match[0]?.toUpperCase() ? 'Dario' : 'dario',
+    )
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -201,7 +210,7 @@ export default function ChatPage() {
           Accept: 'text/event-stream',
         },
         body: JSON.stringify({
-          message: trimmedMessage,
+          message: backendMessage,
           selected_people: selectedPeopleIds,
         }),
       })
@@ -461,9 +470,9 @@ export default function ChatPage() {
                   >
                     {message.text ? (
                       message.role === 'assistant' ? (
-                        <StreamingMarkdown text={message.text} pending={Boolean(message.pending)} />
+                        <StreamingMarkdown text={toDisplayName(message.text)} pending={Boolean(message.pending)} />
                       ) : (
-                        <p>{message.text}</p>
+                        <p>{toDisplayName(message.text)}</p>
                       )
                     ) : null}
 
@@ -490,10 +499,10 @@ export default function ChatPage() {
                               tool {tool.name} • {tool.status}
                             </p>
                             {tool.result_preview ? (
-                              <p className="text-muted-foreground">{tool.result_preview}</p>
+                              <p className="text-muted-foreground">{toDisplayName(tool.result_preview)}</p>
                             ) : null}
                             {tool.error ? (
-                              <p className="text-destructive">{tool.error}</p>
+                              <p className="text-destructive">{toDisplayName(tool.error)}</p>
                             ) : null}
                           </div>
                         ))}
@@ -510,7 +519,7 @@ export default function ChatPage() {
                       <div className="mt-2 border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
                         {message.citations.map((citation) => (
                           <p key={citation.context_id}>
-                            {citation.title}
+                            {toDisplayName(citation.title)}
                             {formatCitationDate(citation.date) ? ` • ${formatCitationDate(citation.date)}` : ''}
                           </p>
                         ))}

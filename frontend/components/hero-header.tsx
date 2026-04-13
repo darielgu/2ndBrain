@@ -10,7 +10,7 @@ const spaceGrotesk = Space_Grotesk({ weight: ["500", "700"], subsets: ["latin"] 
 
 export function HeroHeader() {
   const repoUrl = "https://github.com/darielgu/2ndBrain"
-  const demoVideoUrl = "https://www.youtube.com/embed/jNQXAC9IVRw"
+  const demoVideoUrl = "https://www.youtube.com/embed/BIZgHGt1pNI"
   const installCommand =
     "curl -fsSL https://codeload.github.com/darielgu/2ndBrain/tar.gz/refs/heads/main | tar -xz && cd 2ndBrain-main/frontend && npm i && npm run dev"
   const [copied, setCopied] = useState(false)
@@ -120,8 +120,8 @@ export function HeroHeader() {
         <div className="mx-auto max-w-6xl px-6 pb-24">
           <AsciiSignal />
         </div>
-        <div className="mx-auto max-w-4xl px-6 pb-24">
-          <section className="border border-border bg-muted/20 p-4 md:p-6">
+        <div className="mx-auto max-w-6xl px-6 pb-24">
+          <section className="mx-auto max-w-5xl border border-border bg-muted/20 p-4 md:p-6">
             <h2 className="mb-4 text-left text-xl lowercase tracking-tight text-foreground md:text-2xl">
               see how it works
             </h2>

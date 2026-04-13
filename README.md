@@ -1,119 +1,152 @@
 # SecondBrain
 
-SecondBrain gives your AI memory of your real life.
+**SecondBrain gives your AI memory of your real life.**
 
-A hackathon project that helps you remember people, conversations, and commitments by converting real-world interactions into structured memory episodes.
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
+[![Hackathon Build](https://img.shields.io/badge/Build-Hackathon-black)](#)
+[![Local-First](https://img.shields.io/badge/Storage-Local%20First-0f172a)](#local-storage)
+[![Face Tracking](https://img.shields.io/badge/Tracking-Vectorized%20Top--K-1d4ed8)](#how-recognition-works-vectorizing--centroid--top-k)
 
-## Inspiration
+[![Open Dashboard](https://img.shields.io/badge/Open-Dashboard-111827?style=for-the-badge)](http://localhost:3000/dashboard/overview)
+[![Start Session](https://img.shields.io/badge/Start-Live%20Session-000000?style=for-the-badge)](http://localhost:3000/dashboard/session)
+[![Memory Chat](https://img.shields.io/badge/Try-Memory%20Chat-0b0f19?style=for-the-badge)](http://localhost:3000/dashboard/chat)
 
-Most AI products remember prompts, not people.
+## What This Is
 
-In real life, we meet someone, have a meaningful conversation, promise a follow-up, and then lose context by the next interaction. That breaks trust and momentum.
+SecondBrain is an experimental memory layer for real-world relationships.
 
-SecondBrain was built to close that gap: capture what happened, store what matters, and bring it back instantly when you need it.
+It helps you remember:
 
-## What SecondBrain Does
+- who someone is
+- where you met
+- what mattered in your last conversation
+- what you promised to do
 
-- Recognizes or selects a person during a live interaction.
-- Retrieves memory context fast: who they are, where you met, what changed, open loops.
-- Captures conversation transcripts and extracts deterministic memory fields.
-- Stores structured people + episode memory for later retrieval.
-- Provides a dashboard to browse people, query memory, and track follow-ups.
+Instead of treating interactions as raw transcript logs, SecondBrain stores structured memory episodes so context can be surfaced instantly when it matters.
 
-## The Hackathon Demo Flow
+## Why Customers Care
 
-1. Face is detected from webcam input.
-2. System resolves `person_id` (or falls back to top candidates/manual override).
-3. App queries memory and shows a context card immediately.
-4. User sees a concise nudge:
-   - name
-   - where met
-   - summary
-   - top open loop
-5. Conversation is captured and converted into structured memory episode.
-6. Memory is upserted for future retrieval.
+Most tools remember documents and prompts. They do not remember your life.
 
-## Why Nia
+SecondBrain is built for the moment right before you speak to someone and realize:
 
-Nia is the memory and retrieval layer in this project.
+- you forgot their name
+- you forgot where you met
+- you forgot what you owe them
 
-Nia is used for:
+SecondBrain makes that moment recoverable by turning interactions into memory that can be searched and used in real time.
 
-- Persistent context storage for people and episodes.
-- Retrieval of relevant memory context by identity.
-- Context continuity across sessions.
+## Core Product Experience
 
-Nia is not used for:
+### 1) Recognition + retrieval
 
-- Face recognition itself.
+During a live session, the system identifies (or suggests) who is in front of you and immediately loads context.
+
+### 2) Memory capture
+
+Conversation text is transformed into structured fields:
+
+- people involved
+- key topics
+- explicit promises
+- actionable next steps
+
+### 3) Proactive nudge
+
+You get short context before asking:
+
+- name
+- where met
+- one key detail
+- one open loop
+
+### 4) Dashboard oracle
+
+Use dashboard + chat to ask questions like:
+
+- what did I promise them?
+- who did I meet this week?
+- what follow-ups are still open?
+
+## How Recognition Works (Vectorizing + Centroid + Top-K)
+
+Face tracking and matching is implemented as a practical experiment pipeline:
+
+1. Face is detected from webcam frames.
+2. The face is vectorized into an embedding.
+3. Stored identity vectors are grouped by person.
+4. A centroid vector is used as a fast representative for each person.
+5. Distances are computed and top-K candidates are returned.
+6. Confidence gating determines auto-resolve vs manual selection fallback.
+
+This gives a resilient demo path:
+
+- fast best-guess identity
+- candidate fallback when uncertain
+- quick manual correction loop
+
+## Local Storage
+
+SecondBrain is local-first in this repo:
+
+- local SQLite persistence for people + episodes
+- local profile/session artifacts
+- local development environment for rapid iteration
+
+This keeps iteration fast and demo behavior deterministic.
+
+## Privacy + Scope
+
+This repo is a hackathon experiment, not a production compliance product.
+
+- Privacy/compliance guarantees are out of scope in this build.
+- This is experimentation of thought and product direction.
+- Do not treat this repository as a finalized privacy architecture.
+
+## Long-Term Vision
+
+In the long term, SecondBrain could become a wearable context layer that supports people with memory loss by helping reconnect names, faces, and personal history in real time.
+
+Think: lightweight Meta Glasses-style attachment that adds context for people you have met and indexes people you meet next.
+
+## Architecture Overview
 
 Pipeline:
 
-`camera/mic -> identity resolution -> person_id -> Nia retrieval -> context nudge -> memory extraction -> Nia update`
+`camera + mic -> identity resolution -> person_id -> memory retrieval -> context nudge -> transcript extraction -> memory update`
 
-## Memory Model (Deterministic)
+Key boundaries:
 
-SecondBrain stores structured memory, not raw transcript dumps.
+- **Nia:** memory/retrieval layer
+- **Recognition system:** identity resolution
+- **Dashboard + live UI:** user-facing interaction surface
 
-### Person
+## Tech Notes
 
-- `person_id`
-- `name`
-- `where_met`
-- `summary`
-- `open_loops[]`
-- `last_seen`
+- Next.js + React frontend (`frontend/`)
+- API routes under `frontend/app/api/*`
+- Local DB and memory utilities under `frontend/lib/*`
+- Dashboard routes in `frontend/app/dashboard/*`
 
-### Episode
-
-- `episode_id`
-- `person_ids[]`
-- `topics[]` (1-3)
-- `promises[]` (explicit only)
-- `next_actions[]`
-- `timestamp`
-- `source`
-
-Extraction contract (strict):
-
-- Only explicit commitments are captured.
-- If no promise exists, `promises` is an empty array.
-- Max 3 items per field.
-- Precision over recall.
-
-## Project Structure
-
-- `frontend/app/page.tsx`: landing page
-- `frontend/app/dashboard/*`: dashboard routes (overview, people, chat, history, session, settings)
-- `frontend/app/api/*`: API routes for recognition, extraction, memory, chat, integrations
-- `frontend/components/*`: UI components and live panels
-- `frontend/lib/db.ts`: local SQLite persistence
-- `frontend/lib/nia.ts`: Nia client + sync/retrieval logic
-- `frontend/lib/ingest.ts`: transcript -> episode ingestion pipeline
-
-## Setup
-
-### Prerequisites
-
-- Node.js 20+
-- npm
-
-### 1) Install dependencies
+## Quickstart
 
 ```bash
 cd frontend
 npm install
+npm run dev
 ```
 
-### 2) Configure environment variables
+Open `http://localhost:3000`.
 
-Create `frontend/.env.local` and set values for the integrations you need:
+## Environment
 
-- `OPENAI_API_KEY` (required for extraction/chat features)
-- `NIA_API_KEY` (required for Nia memory sync/retrieval)
-- `NIA_BASE_URL` (optional, defaults to Nia API base)
+Set `frontend/.env.local` as needed:
 
-Optional integrations:
+- `OPENAI_API_KEY`
+- `NIA_API_KEY`
+- `NIA_BASE_URL`
+
+Optional:
 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
@@ -122,48 +155,15 @@ Optional integrations:
 - `APOLLO_API_KEY`
 - `OPENAI_MEMORY_MODEL`
 
-### 3) Run locally
-
-```bash
-npm run dev
-```
-
-Then open `http://localhost:3000`.
-
 ## Scripts
 
 From `frontend/`:
 
-- `npm run dev` - start local dev server
-- `npm run build` - production build
-- `npm run start` - run production server
-- `npm run lint` - TypeScript type-check (`tsc --noEmit`)
-
-## Reliability Notes (Hackathon-first)
-
-Face recognition is not perfectly reliable under live conditions. The product is designed to degrade gracefully:
-
-- Confidence threshold + candidate fallback
-- Manual identity selection for instant correction
-- Preloaded demo profiles to guarantee the magic moment
-
-The priority is perceived intelligence and resilience, not perfect biometric accuracy.
-
-## Current Product Direction
-
-- Dark, dense, terminal-inspired UI
-- Fast, progressive context reveal
-- Proactive nudges over long summaries
-- Structured memory over transcript archives
-
-## Demo Checklist
-
-- Recognition flow works with fallback
-- Context card loads fast
-- Open loop is visible
-- New episode is captured and stored
-- Dashboard query returns meaningful memory
+- `npm run dev`
+- `npm run build`
+- `npm run start`
+- `npm run lint`
 
 ## License
 
-Hackathon prototype. Add a formal license before production/open-source release.
+MIT. See [LICENSE](./LICENSE).

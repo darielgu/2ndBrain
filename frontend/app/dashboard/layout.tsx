@@ -9,6 +9,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Play,
+  Plug,
   MessageSquare,
   Settings,
   Sparkles,
@@ -22,6 +23,7 @@ const navItems = [
   { label: 'chat', href: '/dashboard/chat', icon: MessageSquare },
   { label: 'start session', href: '/dashboard/session', icon: Play },
   { label: 'people', href: '/dashboard/people', icon: Users },
+  { label: 'integrations', href: '/dashboard/integrations', icon: Plug },
   { label: 'history', href: '/dashboard/history', icon: History },
   { label: 'settings', href: '/dashboard/settings', icon: Settings },
 ]

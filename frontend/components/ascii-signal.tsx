@@ -83,7 +83,10 @@ export function AsciiSignal() {
           <div className="ascii-signal-scan" />
         </div>
         <aside className="border border-border bg-background/60 p-4 text-left md:p-5">
-          <p className="mb-3 text-xs uppercase tracking-[0.2em] text-muted-foreground">Founder&apos;s Note</p>
+          <p className="mb-3 text-xs">
+            <span className="text-foreground">I thought of this while getting a Burrito on the phone with Caleb </span>
+            <span className="text-muted-foreground">- Dariel</span>
+          </p>
           <p className="text-sm leading-relaxed text-muted-foreground">
             SecondBrain started from a simple pain: meaningful conversations keep happening in real life,
             but the context disappears when you need it most. We meet people, make promises, and then
@@ -100,6 +103,11 @@ export function AsciiSignal() {
           <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
             Powered by Nia, SecondBrain gives your AI memory of your real life so you can show up prepared
             in every conversation instead of scrambling to reconstruct the past.
+          </p>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+            In the long term Secondbrain could be the wearable that speaks to those with memory loss,
+            reminding them of their connections with loved ones, think of a Meta Glasses attatchment
+            that gives you context on those you&apos;ve met and indexes those you meet.
           </p>
         </aside>
       </div>
@@ -118,12 +126,12 @@ export function AsciiSignal() {
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-center">
           <a
-            href="https://aboutdariel.me/"
+            href="https://www.calebdickson-portfolio.com/"
             target="_blank"
             rel="noreferrer"
             className="border border-border bg-muted/20 px-3 py-2 text-xs uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted/40"
           >
-            Dariel
+            Caleb
           </a>
           <a
             href="https://www.enzoweiss.com/"
@@ -134,12 +142,12 @@ export function AsciiSignal() {
             Enzo
           </a>
           <a
-            href="https://www.calebdickson-portfolio.com/"
+            href="https://aboutdariel.me/"
             target="_blank"
             rel="noreferrer"
             className="border border-border bg-muted/20 px-3 py-2 text-xs uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted/40"
           >
-            Caleb
+            Dariel
           </a>
         </div>
       </section>

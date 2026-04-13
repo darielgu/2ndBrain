@@ -6,3 +6,6 @@
 frontend/data/*.db
 frontend/data/*.db-wal
 frontend/data/*.db-shm
+AGENTS.md
+CLAUDE.md
+SecondBrain.md
