@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ArrowRight, Check, Copy, Github, Terminal } from "lucide-react"
 import { Space_Grotesk } from "next/font/google"
 import { Button } from "@/components/ui/button"
@@ -10,9 +10,15 @@ const spaceGrotesk = Space_Grotesk({ weight: ["500", "700"], subsets: ["latin"] 
 
 export function HeroHeader() {
   const repoUrl = "https://github.com/darielgu/2ndBrain"
+  const demoVideoUrl = "https://www.youtube.com/embed/jNQXAC9IVRw"
   const installCommand =
     "curl -fsSL https://codeload.github.com/darielgu/2ndBrain/tar.gz/refs/heads/main | tar -xz && cd 2ndBrain-main/frontend && npm i && npm run dev"
   const [copied, setCopied] = useState(false)
+  const [showLocalAuthCtas, setShowLocalAuthCtas] = useState(false)
+
+  useEffect(() => {
+    setShowLocalAuthCtas(window.location.host === "localhost:3000")
+  }, [])
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(installCommand)
@@ -30,14 +36,16 @@ export function HeroHeader() {
               2ndbrain
             </a>
           </div>
-          <div className="flex items-center gap-4">
-            <Button asChild variant="ghost" className="text-sm lowercase text-muted-foreground hover:text-foreground">
-              <a href="/dashboard/overview">sign in</a>
-            </Button>
-            <Button asChild className="bg-foreground text-background hover:bg-foreground/90 lowercase text-sm">
-              <a href="/onboarding">get started</a>
-            </Button>
-          </div>
+          {showLocalAuthCtas ? (
+            <div className="flex items-center gap-4">
+              <Button asChild variant="ghost" className="text-sm lowercase text-muted-foreground hover:text-foreground">
+                <a href="/dashboard/overview">sign in</a>
+              </Button>
+              <Button asChild className="bg-foreground text-background hover:bg-foreground/90 lowercase text-sm">
+                <a href="/onboarding">get started</a>
+              </Button>
+            </div>
+          ) : null}
         </div>
       </header>
 
@@ -111,6 +119,23 @@ export function HeroHeader() {
         </div>
         <div className="mx-auto max-w-6xl px-6 pb-24">
           <AsciiSignal />
+        </div>
+        <div className="mx-auto max-w-4xl px-6 pb-24">
+          <section className="border border-border bg-muted/20 p-4 md:p-6">
+            <h2 className="mb-4 text-left text-xl lowercase tracking-tight text-foreground md:text-2xl">
+              see how it works
+            </h2>
+            <div className="relative w-full overflow-hidden border border-border bg-black pb-[56.25%]">
+              <iframe
+                className="absolute left-0 top-0 h-full w-full"
+                src={demoVideoUrl}
+                title="SecondBrain demo video"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+              />
+            </div>
+          </section>
         </div>
       </section>
     </div>

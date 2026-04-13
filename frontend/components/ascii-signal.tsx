@@ -103,6 +103,46 @@ export function AsciiSignal() {
           </p>
         </aside>
       </div>
+      <section className="mt-6 border border-border bg-background/60 p-4 md:p-5">
+        <p className="mb-3 text-xs uppercase tracking-[0.2em] text-muted-foreground">Founders</p>
+        <div className="overflow-hidden border border-border bg-background/70">
+          <img
+            src="/founders.png"
+            alt="SecondBrain founders Dariel, Enzo, and Caleb"
+            className="h-auto w-full object-cover"
+            loading="lazy"
+            onError={(event) => {
+              event.currentTarget.src = "/brain.jpg";
+            }}
+          />
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+          <a
+            href="https://aboutdariel.me/"
+            target="_blank"
+            rel="noreferrer"
+            className="border border-border bg-muted/20 px-3 py-2 text-xs uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted/40"
+          >
+            Dariel
+          </a>
+          <a
+            href="https://www.enzoweiss.com/"
+            target="_blank"
+            rel="noreferrer"
+            className="border border-border bg-muted/20 px-3 py-2 text-xs uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted/40"
+          >
+            Enzo
+          </a>
+          <a
+            href="https://www.calebdickson-portfolio.com/"
+            target="_blank"
+            rel="noreferrer"
+            className="border border-border bg-muted/20 px-3 py-2 text-xs uppercase tracking-[0.16em] text-foreground transition-colors hover:bg-muted/40"
+          >
+            Caleb
+          </a>
+        </div>
+      </section>
     </div>
   );
 }
