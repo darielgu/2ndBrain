@@ -1,4 +1,7 @@
-import { ArrowRight, Github, Terminal } from "lucide-react"
+"use client"
+
+import { useState } from "react"
+import { ArrowRight, Check, Copy, Github, Terminal } from "lucide-react"
 import { Space_Grotesk } from "next/font/google"
 import { Button } from "@/components/ui/button"
 import { AsciiSignal } from "@/components/ascii-signal"
@@ -7,6 +10,15 @@ const spaceGrotesk = Space_Grotesk({ weight: ["500", "700"], subsets: ["latin"] 
 
 export function HeroHeader() {
   const repoUrl = "https://github.com/darielgu/2ndBrain"
+  const installCommand =
+    "curl -fsSL https://codeload.github.com/darielgu/2ndBrain/tar.gz/refs/heads/main | tar -xz && cd 2ndBrain-main/frontend && npm i && npm run dev"
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(installCommand)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -78,78 +90,27 @@ export function HeroHeader() {
                   <Terminal className="h-4 w-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">terminal</span>
                 </div>
-                <span className="text-xs text-muted-foreground">run this command</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCopy}
+                  className="h-7 px-2 text-xs lowercase text-muted-foreground hover:text-foreground"
+                >
+                  {copied ? <Check className="mr-1 h-3.5 w-3.5" /> : <Copy className="mr-1 h-3.5 w-3.5" />}
+                  {copied ? "copied" : "copy"}
+                </Button>
               </div>
               <div className="px-4 py-3">
-                <code className="text-sm text-foreground">
-                  <span className="text-muted-foreground">{">"}</span> npx create-2ndbrain-app@latest
+                <code className="text-sm text-foreground break-all">
+                  <span className="text-muted-foreground">{">"}</span> {installCommand}
                 </code>
               </div>
             </div>
           </div>
         </div>
-
-        {/* Hero Image/Video Placeholder */}
         <div className="mx-auto max-w-6xl px-6 pb-24">
-          <div className="relative overflow-hidden rounded-xl border border-border bg-muted/30">
-            <div className="aspect-video w-full">
-              {/* Simulated App Interface */}
-              <div className="h-full w-full bg-secondary p-4">
-                {/* Window Chrome */}
-                <div className="mb-4 flex items-center gap-2">
-                  <div className="h-3 w-3 rounded-full bg-border" />
-                  <div className="h-3 w-3 rounded-full bg-border" />
-                  <div className="h-3 w-3 rounded-full bg-border" />
-                </div>
-                
-                {/* Simulated Dashboard */}
-                <div className="grid h-[calc(100%-2rem)] grid-cols-12 gap-4">
-                  {/* Sidebar */}
-                  <div className="col-span-3 space-y-3 border-r border-border pr-4">
-                    <div className="h-8 w-full bg-muted/50" />
-                    <div className="h-6 w-3/4 bg-muted/30" />
-                    <div className="h-6 w-1/2 bg-muted/30" />
-                    <div className="h-6 w-2/3 bg-muted/30" />
-                    <div className="h-6 w-3/4 bg-muted/30" />
-                  </div>
-                  
-                  {/* Main Content */}
-                  <div className="col-span-9 space-y-4">
-                    {/* Search Bar */}
-                    <div className="flex items-center gap-2 border border-border bg-background/50 px-4 py-3">
-                      <div className="h-4 w-4 rounded bg-accent/50" />
-                      <div className="h-4 flex-1 bg-muted/30" />
-                    </div>
-                    
-                    {/* Content Cards */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2 border border-border p-4">
-                        <div className="h-4 w-1/2 bg-muted/50" />
-                        <div className="h-3 w-full bg-muted/30" />
-                        <div className="h-3 w-3/4 bg-muted/30" />
-                      </div>
-                      <div className="space-y-2 border border-border p-4">
-                        <div className="h-4 w-2/3 bg-muted/50" />
-                        <div className="h-3 w-full bg-muted/30" />
-                        <div className="h-3 w-1/2 bg-muted/30" />
-                      </div>
-                      <div className="space-y-2 border border-border p-4">
-                        <div className="h-4 w-1/3 bg-muted/50" />
-                        <div className="h-3 w-full bg-muted/30" />
-                        <div className="h-3 w-2/3 bg-muted/30" />
-                      </div>
-                      <div className="space-y-2 border border-border p-4">
-                        <div className="h-4 w-3/4 bg-muted/50" />
-                        <div className="h-3 w-full bg-muted/30" />
-                        <div className="h-3 w-1/2 bg-muted/30" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
           <AsciiSignal />
-          </div>
         </div>
       </section>
     </div>
