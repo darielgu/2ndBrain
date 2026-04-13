@@ -388,7 +388,7 @@ export function SessionPanel({
   // --- Idle state: show two mode selection buttons ---
   if (mode === 'idle') {
     return (
-      <div className="space-y-4">
+      <div className="micro-stagger space-y-4">
         <Card className="rounded-none border-border bg-background/40 shadow-none">
           <CardHeader className="gap-1 px-4 py-4">
             <CardTitle className="flex items-center gap-2 text-sm lowercase">
@@ -404,7 +404,7 @@ export function SessionPanel({
               <button
                 onClick={startWebcam}
                 disabled={isSavingWebcamSession}
-                className="group border border-border bg-secondary/30 p-6 text-left transition-colors hover:border-accent hover:bg-accent/5"
+                className="group border border-border bg-secondary/30 p-6 text-left transition-all duration-200 hover:-translate-y-px hover:border-accent hover:bg-accent/5"
               >
                 <Camera className="mb-3 h-8 w-8 text-muted-foreground transition-colors group-hover:text-accent" />
                 <p className="text-sm lowercase">webcam</p>
@@ -415,7 +415,7 @@ export function SessionPanel({
               <button
                 onClick={startScreenCapture}
                 disabled={isSavingWebcamSession}
-                className="group border border-border bg-secondary/30 p-6 text-left transition-colors hover:border-accent hover:bg-accent/5"
+                className="group border border-border bg-secondary/30 p-6 text-left transition-all duration-200 hover:-translate-y-px hover:border-accent hover:bg-accent/5"
               >
                 <Monitor className="mb-3 h-8 w-8 text-muted-foreground transition-colors group-hover:text-accent" />
                 <p className="text-sm lowercase">screen capture</p>
@@ -465,8 +465,8 @@ export function SessionPanel({
 
   // --- Active recording state ---
   return (
-    <div className="space-y-4">
-      <Card className="rounded-none border-border bg-background/40 shadow-none">
+      <div className="space-y-4">
+        <Card className="rounded-none border-border bg-background/40 shadow-none">
         <CardHeader className="gap-1 px-4 py-4">
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-sm lowercase">
@@ -480,7 +480,7 @@ export function SessionPanel({
             <div className="flex items-center gap-3">
               {mode === 'screen' && recorder.isTranscribing && (
                 <div className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 animate-pulse bg-accent" />
+                  <span className="micro-pulse-dot h-2 w-2 bg-accent" />
                   <span className="text-[10px] lowercase text-muted-foreground">
                     transcribing
                   </span>
@@ -488,7 +488,7 @@ export function SessionPanel({
               )}
               {mode === 'webcam' && (isLiveListening || isTranscribing) && (
                 <div className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 animate-pulse bg-accent" />
+                  <span className="micro-pulse-dot h-2 w-2 bg-accent" />
                   <span className="text-[10px] lowercase text-muted-foreground">
                     {isRealtimeConnected
                       ? 'realtime stt'
@@ -499,7 +499,7 @@ export function SessionPanel({
                 </div>
               )}
               <div className="flex items-center gap-2">
-                <span className="h-2 w-2 animate-pulse bg-red-500" />
+                <span className="micro-pulse-dot h-2 w-2 bg-red-500" />
                 <span className="font-mono text-xs lowercase text-muted-foreground">
                   {formatTime(currentElapsed)}
                 </span>
@@ -522,7 +522,7 @@ export function SessionPanel({
           </CardDescription>
         </CardHeader>
         <CardContent className="px-4 pb-4">
-          <div className="relative border border-border bg-black">
+          <div className="micro-enter relative border border-border bg-black">
             <video
               ref={videoRef}
               autoPlay
@@ -554,7 +554,7 @@ export function SessionPanel({
     )}
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-3">
               <div className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 animate-pulse bg-red-500" />
+                <span className="micro-pulse-dot h-1.5 w-1.5 bg-red-500" />
                 <span className="text-[10px] uppercase tracking-widest text-white/70">
                   {mode === 'webcam' ? 'live — webcam' : 'live — screen'}
                 </span>

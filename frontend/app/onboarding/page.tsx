@@ -147,7 +147,7 @@ function OnboardingInner() {
       <div className="mx-auto w-full max-w-2xl">
         <div className="border border-border bg-background/40 p-5 sm:p-6">
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">secondbrain / onboarding</p>
-          <h1 className="mt-2 text-3xl lowercase tracking-tight text-foreground">set your profile context</h1>
+          <h1 className="mt-2 text-xl tracking-tight text-foreground md:text-2xl">Set Your Profile Context</h1>
           <p className="mt-2 max-w-xl text-sm lowercase text-muted-foreground">
             save your identity once so chats and memory flows can personalize around you.
           </p>

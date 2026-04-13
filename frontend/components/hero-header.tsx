@@ -1,21 +1,23 @@
 "use client"
 
-import { ArrowRight, Github, Terminal, Copy, Check } from "lucide-react"
-import { Space_Grotesk } from "next/font/google"
 import { useState } from "react"
+import { ArrowRight, Check, Copy, Github, Terminal } from "lucide-react"
+import { Space_Grotesk } from "next/font/google"
 import { Button } from "@/components/ui/button"
 import { AsciiSignal } from "@/components/ascii-signal"
 
 const spaceGrotesk = Space_Grotesk({ weight: ["500", "700"], subsets: ["latin"] })
 
 export function HeroHeader() {
+  const repoUrl = "https://github.com/darielgu/2ndBrain"
+  const installCommand =
+    "curl -fsSL https://codeload.github.com/darielgu/2ndBrain/tar.gz/refs/heads/main | tar -xz && cd 2ndBrain-main/frontend && npm i && npm run dev"
   const [copied, setCopied] = useState(false)
-  const repoUrl = "https://github.com/your-org/your-repo"
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText("npx create-2ndbrain-app@latest")
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(installCommand)
     setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setTimeout(() => setCopied(false), 1500)
   }
 
   return (
@@ -27,21 +29,10 @@ export function HeroHeader() {
             <a href="/" className="text-lg font-bold lowercase tracking-tight text-foreground">
               2ndbrain
             </a>
-            <nav className="hidden items-center gap-6 md:flex">
-              <a href="#features" className="text-sm lowercase text-muted-foreground transition-colors hover:text-foreground">
-                features
-              </a>
-              <a href="#pricing" className="text-sm lowercase text-muted-foreground transition-colors hover:text-foreground">
-                pricing
-              </a>
-              <a href="#docs" className="text-sm lowercase text-muted-foreground transition-colors hover:text-foreground">
-                docs
-              </a>
-            </nav>
           </div>
           <div className="flex items-center gap-4">
-            <Button variant="ghost" className="text-sm lowercase text-muted-foreground hover:text-foreground">
-              sign in
+            <Button asChild variant="ghost" className="text-sm lowercase text-muted-foreground hover:text-foreground">
+              <a href="/dashboard/overview">sign in</a>
             </Button>
             <Button asChild className="bg-foreground text-background hover:bg-foreground/90 lowercase text-sm">
               <a href="/onboarding">get started</a>
@@ -73,8 +64,8 @@ export function HeroHeader() {
 
           {/* Subheadline */}
           <p className="mx-auto mb-10 max-w-2xl text-sm leading-relaxed text-muted-foreground md:text-base">
-            2ndbrain transforms your scattered notes, documents, and ideas into actionable intelligence. 
-            search across your entire knowledge base with ai-powered precision.
+            2ndbrain brings your context into real life. remember real interactions with real people, recover
+            what was said, and surface open loops before the next conversation starts.
           </p>
 
           {/* CTA Buttons */}
@@ -99,123 +90,27 @@ export function HeroHeader() {
                   <Terminal className="h-4 w-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">terminal</span>
                 </div>
-                <button 
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={handleCopy}
-                  className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  className="h-7 px-2 text-xs lowercase text-muted-foreground hover:text-foreground"
                 >
-                  {copied ? (
-                    <>
-                      <Check className="h-3 w-3" />
-                      copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3 w-3" />
-                      copy
-                    </>
-                  )}
-                </button>
+                  {copied ? <Check className="mr-1 h-3.5 w-3.5" /> : <Copy className="mr-1 h-3.5 w-3.5" />}
+                  {copied ? "copied" : "copy"}
+                </Button>
               </div>
               <div className="px-4 py-3">
-                <code className="text-sm text-foreground">
-                  <span className="text-muted-foreground">{">"}</span> npx create-2ndbrain-app@latest
+                <code className="text-sm text-foreground break-all">
+                  <span className="text-muted-foreground">{">"}</span> {installCommand}
                 </code>
               </div>
             </div>
           </div>
         </div>
-
-        {/* Hero Image/Video Placeholder */}
         <div className="mx-auto max-w-6xl px-6 pb-24">
-          <div className="relative overflow-hidden rounded-xl border border-border bg-muted/30">
-            <div className="aspect-video w-full">
-              {/* Simulated App Interface */}
-              <div className="h-full w-full bg-secondary p-4">
-                {/* Window Chrome */}
-                <div className="mb-4 flex items-center gap-2">
-                  <div className="h-3 w-3 rounded-full bg-border" />
-                  <div className="h-3 w-3 rounded-full bg-border" />
-                  <div className="h-3 w-3 rounded-full bg-border" />
-                </div>
-                
-                {/* Simulated Dashboard */}
-                <div className="grid h-[calc(100%-2rem)] grid-cols-12 gap-4">
-                  {/* Sidebar */}
-                  <div className="col-span-3 space-y-3 border-r border-border pr-4">
-                    <div className="h-8 w-full bg-muted/50" />
-                    <div className="h-6 w-3/4 bg-muted/30" />
-                    <div className="h-6 w-1/2 bg-muted/30" />
-                    <div className="h-6 w-2/3 bg-muted/30" />
-                    <div className="h-6 w-3/4 bg-muted/30" />
-                  </div>
-                  
-                  {/* Main Content */}
-                  <div className="col-span-9 space-y-4">
-                    {/* Search Bar */}
-                    <div className="flex items-center gap-2 border border-border bg-background/50 px-4 py-3">
-                      <div className="h-4 w-4 rounded bg-accent/50" />
-                      <div className="h-4 flex-1 bg-muted/30" />
-                    </div>
-                    
-                    {/* Content Cards */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2 border border-border p-4">
-                        <div className="h-4 w-1/2 bg-muted/50" />
-                        <div className="h-3 w-full bg-muted/30" />
-                        <div className="h-3 w-3/4 bg-muted/30" />
-                      </div>
-                      <div className="space-y-2 border border-border p-4">
-                        <div className="h-4 w-2/3 bg-muted/50" />
-                        <div className="h-3 w-full bg-muted/30" />
-                        <div className="h-3 w-1/2 bg-muted/30" />
-                      </div>
-                      <div className="space-y-2 border border-border p-4">
-                        <div className="h-4 w-1/3 bg-muted/50" />
-                        <div className="h-3 w-full bg-muted/30" />
-                        <div className="h-3 w-2/3 bg-muted/30" />
-                      </div>
-                      <div className="space-y-2 border border-border p-4">
-                        <div className="h-4 w-3/4 bg-muted/50" />
-                        <div className="h-3 w-full bg-muted/30" />
-                        <div className="h-3 w-1/2 bg-muted/30" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
           <AsciiSignal />
-          </div>
-        </div>
-      </section>
-
-      {/* Logo Marquee Section */}
-      <section className="border-y border-border py-12">
-        <div className="mx-auto max-w-7xl px-6">
-          <p className="mb-8 text-center text-xs uppercase tracking-widest text-muted-foreground">
-            trusted by teams at
-          </p>
-          <div className="relative overflow-hidden">
-            <div className="flex animate-marquee items-center gap-12">
-              {['vercel', 'stripe', 'linear', 'notion', 'figma', 'github', 'slack', 'discord'].map((company) => (
-                <div 
-                  key={company} 
-                  className="flex-shrink-0 text-lg font-bold text-muted-foreground/40 transition-colors hover:text-muted-foreground"
-                >
-                  {company}
-                </div>
-              ))}
-              {/* Duplicate for seamless loop */}
-              {['vercel', 'stripe', 'linear', 'notion', 'figma', 'github', 'slack', 'discord'].map((company) => (
-                <div 
-                  key={`${company}-2`} 
-                  className="flex-shrink-0 text-lg font-bold text-muted-foreground/40 transition-colors hover:text-muted-foreground"
-                >
-                  {company}
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       </section>
     </div>

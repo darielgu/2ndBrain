@@ -35,7 +35,7 @@ export default async function PersonPage({
 
   return (
     <div className="space-y-4">
-      <div className="border border-border bg-background/40 p-3">
+      <div className="border border-border bg-background/40 px-4 py-4 md:px-5 md:py-5">
         <div className="mb-2">
           <Link
             href="/dashboard/people"
@@ -45,16 +45,15 @@ export default async function PersonPage({
             back to people
           </Link>
         </div>
-        <p className="text-xs tracking-widest text-muted-foreground">secondbrain / people / profile</p>
-        <div className="mt-2 flex items-center gap-3">
+        <div className="mt-1 flex items-center gap-3">
           <img
             src={avatarUrl}
             alt={`${profile.name} avatar`}
             className="h-12 w-12 rounded-full border border-border object-cover"
           />
           <div>
-            <h1 className="text-2xl lowercase tracking-tight md:text-3xl">{profile.name}</h1>
-            <p className="text-xs lowercase text-muted-foreground">id: {profile.person_id}</p>
+            <h1 className="text-xl tracking-tight text-foreground md:text-2xl">{profile.name}</h1>
+            <p className="text-xs text-muted-foreground">id: {profile.person_id}</p>
           </div>
         </div>
       </div>
@@ -135,4 +134,3 @@ export default async function PersonPage({
     </div>
   )
 }
-

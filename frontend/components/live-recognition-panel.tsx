@@ -65,6 +65,10 @@ interface LiveRecognitionPanelProps {
   onProfileChange?: (profile: RecognitionProfile | null) => void
 }
 
+type NiaTipPayload = Partial<RecognitionProfile> & {
+  agent_line?: string
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -396,6 +400,7 @@ export function LiveRecognitionPanel({
   const [streamOpenLoop, setStreamOpenLoop] = useState('')
   const [enrichmentSyncing, setEnrichmentSyncing] = useState(false)
   const [collapsed, setCollapsed] = useState(overlay)
+  const [niaAgentLine, setNiaAgentLine] = useState('')
 
   const runningRef = useRef(false)
   const lastAnnouncedRef = useRef<string | null>(null)
@@ -548,7 +553,7 @@ export function LiveRecognitionPanel({
   }, [])
 
   const fetchNiaTips = useCallback(
-    async (personId: string): Promise<Partial<RecognitionProfile> | null> => {
+    async (personId: string): Promise<NiaTipPayload | null> => {
       const res = await fetch(
         `/api/recognition/tips?person_id=${encodeURIComponent(personId)}`
       )
@@ -562,6 +567,7 @@ export function LiveRecognitionPanel({
           last_conversation_summary?: string
           last_seen?: string
           last_location?: string
+          agent_line?: string
         }
       }
       if (!json.tip) return null
@@ -573,6 +579,7 @@ export function LiveRecognitionPanel({
         last_conversation_summary: json.tip.last_conversation_summary || undefined,
         last_seen: json.tip.last_seen || undefined,
         last_location: json.tip.last_location || undefined,
+        agent_line: json.tip.agent_line || undefined,
       }
     },
     []
@@ -836,6 +843,7 @@ export function LiveRecognitionPanel({
 
     setProfile(resolvedProfile)
     setInferredName('')
+    setNiaAgentLine('')
     if (overlay) setCollapsed(false)
     setConfidence(candidate.confidence)
     console.info('[recognition] ui_resolved', {
@@ -869,6 +877,9 @@ export function LiveRecognitionPanel({
         ])
         if (niaTips && shouldFetchTips) {
           tipsFetchedPersonIdsRef.current.add(resolvedProfile.person_id)
+        }
+        if (niaTips?.agent_line) {
+          setNiaAgentLine(niaTips.agent_line)
         }
         console.info('[recognition] tips_completed', {
           person_id: resolvedProfile.person_id,
@@ -1035,6 +1046,7 @@ export function LiveRecognitionPanel({
       await captureProfileFrame(created, null, 'auto_resolved')
       setProfile(created)
       setInferredName('')
+      setNiaAgentLine('')
       if (overlay) setCollapsed(false)
       setConfidence(null)
       await streamProfile(created)
@@ -1189,6 +1201,7 @@ export function LiveRecognitionPanel({
       setError(null)
       setProfile(null)
       setInferredName('')
+      setNiaAgentLine('')
       setEnrichmentSyncing(false)
       enrichmentInFlightRef.current.clear()
       tipsFetchedPersonIdsRef.current.clear()
@@ -1235,20 +1248,20 @@ export function LiveRecognitionPanel({
 
   if (overlay) {
     return (
-      <div className="flex w-full items-start justify-between gap-2">
+      <div className="micro-enter flex w-full items-start justify-between gap-2">
         <Card className="w-[min(380px,48vw)] rounded-none border-white/20 bg-white/10 shadow-none backdrop-blur-md">
           <CardHeader className="gap-1 px-3 py-2">
             <CardTitle className="text-[10px] uppercase tracking-widest text-white/70">nia tips</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1.5 px-3 pb-3 text-[11px] lowercase text-white/90">
-            <p className="truncate">
+            <p className="whitespace-normal break-words leading-relaxed">
               <span className="text-white/65">summary:</span> {profile?.summary || 'no summary yet'}
             </p>
-            <p className="truncate">
+            <p className="whitespace-normal break-words leading-relaxed">
               <span className="text-white/65">open loop:</span> {profile?.open_loops?.[0] || 'no open loop'}
             </p>
-            <p className="truncate">
-              <span className="text-white/65">agent line:</span> {buildNiaAgentLine(profile)}
+            <p className="whitespace-normal break-words leading-relaxed">
+              <span className="text-white/65">agent line:</span> {niaAgentLine || buildNiaAgentLine(profile)}
             </p>
             {error ? <p className="text-red-300">{error}</p> : null}
           </CardContent>
@@ -1260,7 +1273,7 @@ export function LiveRecognitionPanel({
               <span className="relative inline-flex h-4 w-4 items-center justify-center">
                 <ScanFace className="h-4 w-4 text-white" />
                 {active ? (
-                  <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 animate-pulse bg-accent" />
+                  <span className="micro-pulse-dot absolute -right-0.5 -top-0.5 h-1.5 w-1.5 bg-accent" />
                 ) : null}
               </span>
               <span className="truncate">{statusLabel}</span>
@@ -1297,7 +1310,7 @@ export function LiveRecognitionPanel({
             <span className="relative inline-flex h-4 w-4 items-center justify-center">
               <ScanFace className="h-4 w-4 text-accent" />
               {active ? (
-                <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 animate-pulse bg-accent" />
+                <span className="micro-pulse-dot absolute -right-0.5 -top-0.5 h-1.5 w-1.5 bg-accent" />
               ) : null}
             </span>
             {profile?.name || 'live recognition'}
@@ -1307,7 +1320,7 @@ export function LiveRecognitionPanel({
               <button
                 type="button"
                 onClick={() => setCollapsed((prev) => !prev)}
-                className="border border-border bg-background/50 p-1 text-muted-foreground transition-colors hover:text-foreground"
+                className="border border-border bg-background/50 p-1 text-muted-foreground transition-all duration-200 hover:-translate-y-px hover:text-foreground"
                 aria-label={collapsed ? 'expand recognition panel' : 'collapse recognition panel'}
                 title={collapsed ? 'expand' : 'collapse'}
               >

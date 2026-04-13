@@ -422,7 +422,7 @@ export async function savePersonContext(person: Person): Promise<string> {
   try {
     upsertPerson(merged)
   } catch (err) {
-    console.error('sqlite upsertPerson failed:', err)
+    console.error('sqlite upsertPerson (local-first) failed:', err)
   }
 
   try {
@@ -440,7 +440,7 @@ export async function savePersonContext(person: Person): Promise<string> {
       `nia sync failed for ${merged.person_id} — sqlite still updated:`,
       err,
     )
-    return merged.nia_context_id || ''
+    return merged.nia_context_id || merged.person_id
   }
 }
 
