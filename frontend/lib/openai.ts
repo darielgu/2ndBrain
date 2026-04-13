@@ -26,6 +26,7 @@ const EXTRACTION_SYSTEM_PROMPT = `you are a memory extraction agent for secondbr
 rules (strict):
 - extract ONLY: people involved, key topics, explicit promises, next actions, and per-person contact fields if explicitly stated.
 - people: max 3. include name, brief role/context, prose_summary, and contact fields when stated.
+- IMPORTANT: if a "speaker (the user)" name is provided in the user message, that person is the app's user — do NOT include them in people[]. people[] is the user's CONTACTS, not the user themselves. match case-insensitively and tolerate small spelling variants.
 - topics: 1-3 key topics discussed
 - promises: ONLY explicit, verbatim commitments. if no promise was made, return an empty array. do NOT infer or assume promises
 - next_actions: max 3 concrete follow-ups or next steps mentioned
@@ -208,7 +209,8 @@ const FALSE_POSITIVE_LOCALS = new Set([
 ])
 
 export async function extractMemory(
-  transcript: string
+  transcript: string,
+  opts: { speakerName?: string } = {},
 ): Promise<ExtractionResult> {
   const fallback: ExtractionResult = {
     people: [],
@@ -227,6 +229,10 @@ export async function extractMemory(
   // address) so the extraction llm doesn't need to reconstruct them itself.
   const normalized = reconstructSpokenEmails(transcript)
 
+  const speakerLine = opts.speakerName
+    ? `speaker (the user): ${opts.speakerName} — exclude this person from people[].\n\n`
+    : ''
+
   try {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -235,7 +241,7 @@ export async function extractMemory(
         { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
         {
           role: 'user',
-          content: `extract structured memory from this transcript (spoken emails have been pre-normalized to real addresses — use them verbatim):\n\n${normalized}`,
+          content: `${speakerLine}extract structured memory from this transcript (spoken emails have been pre-normalized to real addresses — use them verbatim):\n\n${normalized}`,
         },
       ],
       temperature: 0.1,
@@ -261,16 +267,24 @@ export async function extractMemory(
       return trimmed.length > 0 ? trimmed : undefined
     }
 
-    const people = (parsed.people || []).slice(0, 3).map((p) => ({
-      name: p.name,
-      role_or_context: p.role_or_context,
-      prose_summary: p.prose_summary || '',
-      email: validEmail(p.email),
-      job_title: nonEmpty(p.job_title),
-      company: nonEmpty(p.company),
-      linkedin_url: nonEmpty(p.linkedin_url),
-      phone: nonEmpty(p.phone),
-    }))
+    const speakerKey = (opts.speakerName || '').trim().toLowerCase()
+    const people = (parsed.people || [])
+      .filter((p) => {
+        if (!p?.name) return false
+        if (!speakerKey) return true
+        return p.name.trim().toLowerCase() !== speakerKey
+      })
+      .slice(0, 3)
+      .map((p) => ({
+        name: p.name,
+        role_or_context: p.role_or_context,
+        prose_summary: p.prose_summary || '',
+        email: validEmail(p.email),
+        job_title: nonEmpty(p.job_title),
+        company: nonEmpty(p.company),
+        linkedin_url: nonEmpty(p.linkedin_url),
+        phone: nonEmpty(p.phone),
+      }))
 
     return {
       people,

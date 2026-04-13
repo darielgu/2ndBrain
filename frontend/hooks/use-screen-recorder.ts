@@ -7,6 +7,7 @@ import type {
   ExtractionResult,
   VisualPerson,
 } from '@/lib/types'
+import { loadOnboardingProfile } from '@/lib/onboarding-profile'
 
 const CHUNK_INTERVAL_MS = 15_000 // 15 seconds per chunk
 
@@ -315,13 +316,28 @@ export function useScreenRecorder() {
     }
 
     try {
+      const onboarding = loadOnboardingProfile()
+      const speakerName = onboarding?.name?.trim() || ''
+      const speakerKey = speakerName.toLowerCase()
+
       // Extract structured memory
       const extractRes = await fetch('/api/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: fullTranscript }),
+        body: JSON.stringify({
+          transcript: fullTranscript,
+          speakerName: speakerName || undefined,
+        }),
       })
       const extractionResult: ExtractionResult = await extractRes.json()
+
+      // Defense in depth: filter the current user out of people[] in case the
+      // extractor still included them despite the prompt exclusion.
+      if (speakerKey) {
+        extractionResult.people = (extractionResult.people || []).filter(
+          (p) => p.name.trim().toLowerCase() !== speakerKey,
+        )
+      }
       setExtraction(extractionResult)
 
       const now = new Date().toISOString()

@@ -41,34 +41,57 @@ export type ActionProposal =
 
 const CLASSIFIER_PROMPT = `you classify action items from a meeting into structured google-integration proposals.
 
-for each action, decide exactly one kind:
+first, for each action, infer the OWNER — who actually performs the action:
+- owner="me" if the phrasing is the user committing ("i'll send", "i will include", "let me") or it's in the user's voice.
+- owner=<name> if someone else commits ("caleb will confirm", "he'll check with legal").
+the user (the speaker) is identified in the user message as "user_name". other names come from known_people.
 
-- "calendar": the action schedules a meeting/event with at least a date. ALWAYS produce concrete startIso and endIso in ISO 8601 (e.g. "2026-04-21T15:00:00-07:00") — never leave them empty. resolution:
+then pick exactly one kind:
+
+- "calendar": owner=me AND the action schedules a meeting/event with at least a date. ALWAYS produce concrete startIso and endIso in ISO 8601 (e.g. "2026-04-21T15:00:00-07:00") — never leave them empty. resolution:
     * BOTH day + time given ("april 21 at 3pm") → use them directly.
     * ONLY a day given ("april 21st", "next tuesday", "tomorrow") → default to 09:00 local on that day.
     * NO day at all → classify as "task" instead (not "calendar").
   duration defaults: 30 min for coffee/lunch/quick, 60 min for meeting/call/sync/invite.
   set withMeet: true unless clearly in-person (coffee, lunch, office, in-person).
   set a clear short summary (3-8 words) that reads as an event title.
+  attendeeEmails: include emails of OTHER known_people mentioned in the action (not the user's own email — they're the organizer).
 
-- "email_draft": the action is to send/email something ("i'll email you the deck"). write a short 2-4 sentence plain-text draft in first person (the speaker is "me"), lowercase tone. subject should be specific.
-- "task": any other concrete next-action that's a to-do ("review the repo", "look into it"). title 3-8 words, notes can quote the original.
+- "email_draft": owner=me AND the action is to send/email something ("i'll email you the deck", "i'll send my linkedin in the email"). rules:
+    * "to": the email address of the recipient. look up the person the action is addressed to in known_people and use their email verbatim. if the recipient can't be resolved, leave "to": "".
+    * "subject": 3-7 words, specific, future-tense framing (e.g. "intro + linkedin" not "linkedin included"). lowercase.
+    * "body": 2-4 sentences, first person, lowercase, plain text. if the action mentions including the user's linkedin/portfolio/website, paste the actual URL from user_profile verbatim on its own line. do NOT write placeholders like "my linkedin profile" — write the URL. sign off with the user's first name.
+
+- "task": any other concrete next-action that's a to-do, OR any action whose owner is NOT me. phrasing rules:
+    * owner=me: title is 3-8 words, imperative ("review the repo").
+    * owner=<other>: title starts with "waiting: <person> to ..." so the user sees who they're waiting on. notes can quote the original.
+    set dueIso only if the transcript gives a concrete due date.
+
 - "unknown": vague ("think about it", "we'll see") or non-actionable. skip these with a brief reason.
 
-rules:
-- be conservative on attendees. don't invent attendee emails — use ONLY the ones in the known_people list.
-- iso times must be absolute and include the timezone offset matching the reference_now_iso provided.
-- year: infer from reference_now_iso. "april 21st" when reference is 2026 means 2026-04-21; if the date already passed this year, prefer next year.
-- match attendees to the known_people list by name (case-insensitive, fuzzy). include their email only if present in the list. missing emails are ok — leave attendeeEmails empty.
+hard rules:
+- NEVER put the user themselves in calendar attendeeEmails or as email "to" — they're the sender/organizer.
+- don't invent emails. only use addresses that appear in known_people (freshly-extracted or stored).
+- iso times must be absolute and include the timezone offset matching reference_now_iso.
+- year: infer from reference_now_iso. if the date already passed this year, prefer next year.
+- match attendees/recipients to known_people by name (case-insensitive, fuzzy).
 - one action in → one proposal out. return them in the same order.
 
 return strict json: { "proposals": [ {kind, ...fields, originalText} ] }`
+
+export interface ClassifyUserProfile {
+  name: string
+  email?: string
+  linkedin_url?: string
+  portfolio_url?: string
+}
 
 export async function classifyActions(input: {
   extraction: ExtractionResult
   people: Person[]
   referenceIso?: string
   timeZone?: string
+  userProfile?: ClassifyUserProfile
 }): Promise<ActionProposal[]> {
   const actions = [
     ...input.extraction.promises.map((p) => ({ source: 'promise', text: p })),
@@ -117,11 +140,30 @@ export async function classifyActions(input: {
   const now = input.referenceIso || new Date().toISOString()
   const tz = input.timeZone || 'America/New_York'
 
+  // Scrub the user's own identity out of known_people — the classifier
+  // should never address an email "to" the user themselves.
+  const userKey = (input.userProfile?.name || '').trim().toLowerCase()
+  const filteredPeople = userKey
+    ? peopleContext.filter((p) => p.name.trim().toLowerCase() !== userKey)
+    : peopleContext
+
+  const userProfileForPrompt = input.userProfile
+    ? {
+        name: input.userProfile.name,
+        linkedin_url: input.userProfile.linkedin_url || null,
+        portfolio_url: input.userProfile.portfolio_url || null,
+      }
+    : null
+
   const user = `reference_now_iso: ${now}
 timezone: ${tz}
 
+user_name: ${input.userProfile?.name || '(unknown)'}
+user_profile:
+${JSON.stringify(userProfileForPrompt, null, 2)}
+
 known_people:
-${JSON.stringify(peopleContext, null, 2)}
+${JSON.stringify(filteredPeople, null, 2)}
 
 actions:
 ${actions.map((a, i) => `${i + 1}. [${a.source}] ${a.text}`).join('\n')}`

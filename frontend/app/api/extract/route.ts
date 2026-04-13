@@ -3,7 +3,7 @@ import { extractMemory } from '@/lib/openai'
 
 export async function POST(request: Request) {
   try {
-    const { transcript } = await request.json()
+    const { transcript, speakerName } = await request.json()
 
     if (!transcript || typeof transcript !== 'string') {
       return NextResponse.json(
@@ -12,7 +12,9 @@ export async function POST(request: Request) {
       )
     }
 
-    const result = await extractMemory(transcript)
+    const result = await extractMemory(transcript, {
+      speakerName: typeof speakerName === 'string' ? speakerName : undefined,
+    })
     return NextResponse.json(result)
   } catch (err) {
     console.error('extraction error:', err)

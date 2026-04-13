@@ -92,6 +92,12 @@ export function PostCallConfirmation({
     const slug = slugifyName(profile.name)
     setUser(slug)
 
+    const userProfile = {
+      name: profile.name,
+      linkedin_url: profile.linkedinUrl || undefined,
+      portfolio_url: profile.portfolioUrl || undefined,
+    }
+
     fetch(`/api/auth/google/status?user=${encodeURIComponent(slug)}`)
       .then((r) => r.json())
       .then((d) => setGoogleConnected(!!d?.connected))
@@ -99,14 +105,18 @@ export function PostCallConfirmation({
 
     // Wait 1.5s before fetching profile-sync so the recorder's own person
     // save lands first and we see post-save state.
+    const selfKey = profile.name.trim().toLowerCase()
+    const contactNames = extraction.people
+      .map((p) => p.name)
+      .filter((n) => n.trim().toLowerCase() !== selfKey)
     const profileTimer = setTimeout(() => {
-      if (extraction.people.length === 0) return
+      if (contactNames.length === 0) return
       fetch('/api/profile-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user: slug,
-          extractedNames: extraction.people.map((p) => p.name),
+          extractedNames: contactNames,
         }),
       })
         .then((r) => r.json())
@@ -124,6 +134,7 @@ export function PostCallConfirmation({
         extraction,
         referenceIso: new Date().toISOString(),
         timeZone,
+        userProfile,
       }),
     })
       .then((r) => r.json())
