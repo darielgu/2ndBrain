@@ -62,25 +62,28 @@ export function WebcamSubtitleOverlay({
   const showChunkLines = liveLines.length === 0
 
   return (
-    <div className="pointer-events-none absolute bottom-10 left-1/2 z-20 w-[min(900px,94%)] -translate-x-1/2 space-y-1">
+    <div className="pointer-events-none absolute bottom-10 left-1/2 z-20 w-[min(900px,94%)] -translate-x-1/2 space-y-1 micro-enter">
       {liveLines.length > 0 ? (
-        <div className="border border-white/40 bg-black/78 px-3 py-1.5 text-center text-sm leading-relaxed text-white">
+        <div className="border border-white/40 bg-black/78 px-3 py-1.5 text-center text-sm leading-relaxed text-white backdrop-blur-sm">
           {liveLines.map((line, idx) => (
             <p key={`${idx}_${line.slice(0, 16)}`}>{line}</p>
           ))}
           {isLiveListening ? (
-            <p className="mt-1 text-[10px] uppercase tracking-widest text-white/70">live mic</p>
+            <p className="mt-1 text-[10px] uppercase tracking-widest text-white/70">
+              <span className="micro-pulse-dot mr-1 inline-block h-1.5 w-1.5 bg-emerald-300" />
+              live mic
+            </p>
           ) : null}
         </div>
       ) : (
-        <div className="border border-white/30 bg-black/72 px-3 py-1.5 text-center text-xs uppercase tracking-widest text-white/80">
+        <div className="border border-white/30 bg-black/72 px-3 py-1.5 text-center text-xs uppercase tracking-widest text-white/80 backdrop-blur-sm">
           {isLiveListening ? 'listening...' : isTranscribing ? 'capturing transcript...' : 'waiting for mic'}
         </div>
       )}
       {showChunkLines && visibleChunks.map((chunk) => (
         <p
           key={chunk.chunk_index}
-          className="border border-white/30 bg-black/72 px-3 py-1.5 text-center text-sm leading-relaxed text-white"
+          className="border border-white/30 bg-black/72 px-3 py-1.5 text-center text-sm leading-relaxed text-white backdrop-blur-sm"
         >
           {chunk.text}
         </p>

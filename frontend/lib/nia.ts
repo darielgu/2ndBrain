@@ -384,13 +384,24 @@ export async function upsertPersonContext(person: Person): Promise<NiaUpsertResu
 }
 
 export async function savePersonContext(person: Person): Promise<string> {
-  const result = await upsertPersonContext(person)
   try {
-    upsertPerson({ ...person, nia_context_id: result.id })
+    upsertPerson(person)
   } catch (err) {
-    console.error('sqlite upsertPerson failed:', err)
+    console.error('sqlite upsertPerson (local-first) failed:', err)
   }
-  return result.id
+
+  try {
+    const result = await upsertPersonContext(person)
+    try {
+      upsertPerson({ ...person, nia_context_id: result.id })
+    } catch (err) {
+      console.error('sqlite upsertPerson (nia id sync) failed:', err)
+    }
+    return result.id
+  } catch (err) {
+    console.error('nia upsertPersonContext failed (non-fatal for local index):', err)
+    return person.nia_context_id || person.person_id
+  }
 }
 
 // --- Save an episode as an "episodic" context ---

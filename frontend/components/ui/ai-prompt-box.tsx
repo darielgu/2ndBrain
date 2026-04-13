@@ -4,7 +4,7 @@ import React from 'react'
 import * as TooltipPrimitive from '@radix-ui/react-tooltip'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import {
-  ChevronUp,
+  Send,
   Paperclip,
   Square,
   X,
@@ -156,7 +156,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         className={cn(
-          'inline-flex items-center justify-center font-medium transition-colors focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50',
+          'inline-flex items-center justify-center font-medium transition-all duration-200 ease-out hover:-translate-y-px active:scale-[0.98] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50',
           variantClasses[variant],
           sizeClasses[size],
           className,
@@ -487,6 +487,9 @@ interface PromptInputBoxProps {
   placeholder?: string
   className?: string
   leftActionsAddon?: React.ReactNode
+  showSearchToggle?: boolean
+  showThinkToggle?: boolean
+  showCanvasToggle?: boolean
 }
 
 export const PromptInputBox = React.forwardRef(
@@ -497,6 +500,9 @@ export const PromptInputBox = React.forwardRef(
       placeholder = 'Type your message here...',
       className,
       leftActionsAddon,
+      showSearchToggle = true,
+      showThinkToggle = true,
+      showCanvasToggle = true,
     } = props
     const [input, setInput] = React.useState('')
     const [files, setFiles] = React.useState<File[]>([])
@@ -637,7 +643,7 @@ export const PromptInputBox = React.forwardRef(
           isLoading={isLoading}
           onSubmit={handleSubmit}
           className={cn(
-            'w-full border-border bg-background/80 transition-all duration-200 ease-in-out focus-within:border-foreground/40',
+            'micro-enter w-full border-border bg-background/80 transition-all duration-200 ease-in-out focus-within:border-foreground/40',
             className,
           )}
           disabled={isLoading}
@@ -678,11 +684,11 @@ export const PromptInputBox = React.forwardRef(
 
           <PromptInputTextarea
             placeholder={
-              showSearch
+              showSearchToggle && showSearch
                 ? 'Search the web...'
-                : showThink
+                : showThinkToggle && showThink
                   ? 'Think deeply...'
-                  : showCanvas
+                  : showCanvasToggle && showCanvas
                     ? 'Create on canvas...'
                     : placeholder
             }
@@ -694,9 +700,15 @@ export const PromptInputBox = React.forwardRef(
               <PromptInputAction tooltip="Upload image">
                 <button
                   onClick={() => uploadInputRef.current?.click()}
-                  className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-all duration-200 hover:bg-secondary/70 hover:text-foreground"
+                  className="ml-1 inline-flex h-8 items-center gap-1 rounded-md border border-border bg-background/60 px-2 text-xs lowercase text-muted-foreground transition-all duration-200 hover:-translate-y-px hover:border-foreground/40 hover:bg-background hover:text-foreground"
                 >
-                  <Paperclip className="h-5 w-5 transition-colors" />
+                  <Paperclip className="h-3.5 w-3.5 transition-colors" />
+                  file
+                  {files.length > 0 ? (
+                    <span className="rounded border border-foreground/40 bg-secondary px-1 text-[10px] text-foreground">
+                      {files.length}
+                    </span>
+                  ) : null}
                   <input
                     ref={uploadInputRef}
                     type="file"
@@ -716,17 +728,19 @@ export const PromptInputBox = React.forwardRef(
 
               {leftActionsAddon}
 
-              <div className="flex items-center">
-                <button
-                  type="button"
-                  onClick={() => handleToggleChange('search')}
-                  className={cn(
-                    'flex h-8 items-center gap-1 rounded-md border px-2 py-1 transition-all duration-200',
-                    showSearch
-                      ? 'border-foreground/40 bg-secondary text-foreground'
-                      : 'border-transparent bg-transparent text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
-                  )}
-                >
+              {(showSearchToggle || showThinkToggle || showCanvasToggle) ? (
+                <div className="flex items-center">
+                  {showSearchToggle ? (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleChange('search')}
+                      className={cn(
+                        'flex h-8 items-center gap-1 rounded-md border px-2 py-1 transition-all duration-200',
+                        showSearch
+                          ? 'border-foreground/40 bg-secondary text-foreground'
+                          : 'border-transparent bg-transparent text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
+                      )}
+                    >
                   <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center">
                     <motion.div
                       animate={{
@@ -765,20 +779,22 @@ export const PromptInputBox = React.forwardRef(
                       </motion.span>
                     )}
                   </AnimatePresence>
-                </button>
+                    </button>
+                  ) : null}
 
-                <CustomDivider />
+                  {showSearchToggle && showThinkToggle ? <CustomDivider /> : null}
 
-                <button
-                  type="button"
-                  onClick={() => handleToggleChange('think')}
-                  className={cn(
-                    'flex h-8 items-center gap-1 rounded-md border px-2 py-1 transition-all duration-200',
-                    showThink
-                      ? 'border-foreground/40 bg-secondary text-foreground'
-                      : 'border-transparent bg-transparent text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
-                  )}
-                >
+                  {showThinkToggle ? (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleChange('think')}
+                      className={cn(
+                        'flex h-8 items-center gap-1 rounded-md border px-2 py-1 transition-all duration-200',
+                        showThink
+                          ? 'border-foreground/40 bg-secondary text-foreground'
+                          : 'border-transparent bg-transparent text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
+                      )}
+                    >
                   <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center">
                     <motion.div
                       animate={{
@@ -817,20 +833,22 @@ export const PromptInputBox = React.forwardRef(
                       </motion.span>
                     )}
                   </AnimatePresence>
-                </button>
+                    </button>
+                  ) : null}
 
-                <CustomDivider />
+                  {showCanvasToggle && (showSearchToggle || showThinkToggle) ? <CustomDivider /> : null}
 
-                <button
-                  type="button"
-                  onClick={handleCanvasToggle}
-                  className={cn(
-                    'flex h-8 items-center gap-1 rounded-md border px-2 py-1 transition-all duration-200',
-                    showCanvas
-                      ? 'border-foreground/40 bg-secondary text-foreground'
-                      : 'border-transparent bg-transparent text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
-                  )}
-                >
+                  {showCanvasToggle ? (
+                    <button
+                      type="button"
+                      onClick={handleCanvasToggle}
+                      className={cn(
+                        'flex h-8 items-center gap-1 rounded-md border px-2 py-1 transition-all duration-200',
+                        showCanvas
+                          ? 'border-foreground/40 bg-secondary text-foreground'
+                          : 'border-transparent bg-transparent text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
+                      )}
+                    >
                   <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center">
                     <motion.div
                       animate={{
@@ -869,8 +887,10 @@ export const PromptInputBox = React.forwardRef(
                       </motion.span>
                     )}
                   </AnimatePresence>
-                </button>
-              </div>
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             <PromptInputAction
@@ -901,7 +921,7 @@ export const PromptInputBox = React.forwardRef(
                 {isLoading ? (
                   <Square className="h-4 w-4 animate-pulse fill-background" />
                 ) : (
-                  <ChevronUp className={cn('h-4 w-4', hasContent ? 'text-background' : 'text-muted-foreground')} />
+                  <Send className={cn('h-4 w-4', hasContent ? 'text-background' : 'text-muted-foreground')} />
                 )}
               </Button>
             </PromptInputAction>
